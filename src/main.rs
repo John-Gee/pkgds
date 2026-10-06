@@ -1,13 +1,6 @@
-mod btrfs;
-mod config;
-mod error;
-mod format;
-mod human_size;
-mod output;
-mod pacman;
-mod scan;
-
-use config::{Config, RawArgs};
+use pkgds::config::{self, Config, RawArgs};
+use pkgds::output;
+use pkgds::scan;
 
 fn color_enabled(cfg: &Config) -> bool {
     !cfg.no_color && std::env::var_os("NO_COLOR").is_none()
