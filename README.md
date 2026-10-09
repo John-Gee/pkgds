@@ -1,42 +1,38 @@
 # pkgds — Real Disk Usage per Package for Arch Linux
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org)
 
-`pkgds` reports the **real on-disk size** of each installed Arch Linux package,
-complementing `expac` with actual filesystem measurements instead of metadata.
+`pkgds` reports the **real on-disk size** of each installed Arch Linux package.
+`expac -Q '%m'` reports pacman's *declared* install size from package metadata;
+`pkgds` measures what is actually allocated — block rounding, compression,
+hardlinks, and post-install changes included.
 
 ```
-$ pkgds -H auto --files
-PACKAGE                    REAL     PCT   FILES
-linux-firmware        1.2 GiB    14.8%    2841
-libreoffice-fresh   823.4 MiB     7.6%     892
-gcc                 412.7 MiB     3.1%    1043
+$ pkgds -H auto rocm-llvm miopen-hip rocblas
+PACKAGE          REAL      %
+rocm-llvm     6.8 GiB  78.1%
+miopen-hip    1.4 GiB  16.6%
+rocblas     475.1 MiB   5.3%
 ```
 
-`PCT` is each package's share of the total real (or apparent) size of all
-matching packages.
+`%` is each package's share of the total size of all matching packages.
+For the same three packages, `expac -Q '%n %m'` reports 7364364057,
+2447557128 and 1388086875 bytes — `rocblas` uses barely a third of the space
+its metadata claims, because the ROCm packages share hardlinked libraries.
 
-## Why This Exists
-
-`expac -Q '%m'` reports the **PKGBUILD-declared install size** from pacman's
-local database. This number is:
-
-1. A rough estimate from the package maintainer — often wrong
-2. Always the uncompressed size, regardless of btrfs/zfs compression
-3. Doesn't account for actual block allocation (sparse files, block rounding)
-4. Doesn't reflect runtime modifications (pacnew merges, user edits, deleted files)
-
-`pkgds` answers: **how much disk does each package actually use right now?**
+A full scan of ~2500 packages (~600k files) takes under a second warm on NVMe.
 
 ## Installation
 
+`pkgds` is packaged for Arch Linux; build it with the bundled `PKGBUILD`:
+
 ```bash
-cargo build --release
-sudo install -Dm755 target/release/pkgds /usr/bin/pkgds
+git clone https://github.com/John-Gee/pkgds
+cd pkgds
+makepkg -si
 ```
 
-AUR package will be published separately.
+It's also available on the AUR as `pkgds`.
 
 ## Usage
 
@@ -44,43 +40,32 @@ AUR package will be published separately.
 pkgds [OPTIONS] [POSITIONAL]...
 ```
 
-**Format string detection:** If the first positional argument contains a `%`
-character, it is treated as the format string; otherwise, all positional
-arguments are treated as package targets (using default rich table output).
+If the first positional argument contains a `%`, it's treated as the format
+string; otherwise all positionals are package targets and the rich table is
+printed.
 
 ### Examples
 
 ```bash
-# Default: top 20 packages by real disk usage
+# Top 20 packages by real disk usage
 pkgds
 
-# Top 10 by real size, human-readable
-pkgds -n 10 -H auto
+# All packages, apparent size, human-readable
+pkgds -n 0 -H auto --apparent-size
 
-# All packages, apparent size
-pkgds -n 0 -H Mi --sort apparent
-
-# Show metadata vs real size side by side
+# Metadata vs real size side by side
 pkgds -H auto "%n\t%p\t%m"
 
-# Search for python packages
-pkgds -s 'python' -H auto
-
-# Specific packages with custom format
-pkgds -H Mi -d $'\t' $'%n\t%m\t%a\t%f' linux glibc gcc
+# Expand the biggest packages into file/dir trees
+pkgds --tree --depth 3 --min-percent 1
 
 # btrfs on-disk sizes (requires root)
 sudo pkgds --btrfs -H auto
-# a full --btrfs scan sweeps the filesystem's extents once; naming packages
-# reads only those files
 
-# Expand the biggest packages into their file/dir trees
-pkgds --tree --depth 3 --min-percent 1
-
-# Pipe-friendly (no color, raw format)
+# Pipe-friendly: no color, raw format
 pkgds -H Mi "%n\t%m" | sort -k2 -rn | head -5
 
-# Using --root for testing/debugging
+# Scan a chroot
 pkgds --root /mnt/arch --dbpath /mnt/arch/var/lib/pacman -H auto
 ```
 
@@ -91,7 +76,7 @@ pkgds --root /mnt/arch --dbpath /mnt/arch/var/lib/pacman -H auto
 | `[POSITIONAL]...` | (table mode) | Format string or package names |
 | `-H <unit>` | `raw` (format) / `auto` (table) | Human-size: `B`, `K`/`Ki`, `M`/`Mi`, `G`/`Gi`, `T`/`Ti`, `auto`, `auto-si` |
 | `-s <regex>` | — | Search packages by regex on name |
-| `--sort <field>` | `real` | Sort by: `name` (ascending A-Z), `real`/`apparent`/`files` (descending), `ratio` (ascending, best compression first) |
+| `--sort <field>` | `real` | Sort by: `name` (ascending A-Z), `real` (alias `size`)/`apparent`/`files` (descending), `ratio` (ascending, best compression first; requires `--btrfs`) |
 | `-n, --limit <N>` | 20 | Show only top N packages (0 = unlimited) |
 | `--btrfs` | off | Enable btrfs on-disk size tokens (`%z`, `%r`) |
 | `--root <path>` | `/` | Set filesystem root prefix |
@@ -105,7 +90,8 @@ pkgds --root /mnt/arch --dbpath /mnt/arch/var/lib/pacman -H auto
 | `--tree` | off | Expand each shown package into a file/dir tree (default depth 1) |
 | `--depth <N>` | 1 (with `--tree`) | Tree depth in levels; implies `--tree` |
 | `--breadth <K>` | 5 | Show at most K children per tree directory (0 = no limit) |
-| `--min-percent <P>` | 0.1 with `--tree` | Hide tree entries below P% of their parent |
+| `--min-percent <P>` | 0.1 | Hide tree entries below P% of their parent (requires `--tree`) |
+| `-h, --help` | — | Print help |
 
 ### Format Tokens
 
@@ -120,42 +106,6 @@ pkgds --root /mnt/arch --dbpath /mnt/arch/var/lib/pacman -H auto
 | `%z` | btrfs on-disk usage | all file extents via btrfs ioctls, compressed or not (requires `--btrfs` + root) |
 | `%r` | btrfs ratio | `(%z / %a) * 100`; 100% = uncompressed |
 | `%%` | Literal `%` | — |
-
-### Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | Usage error (invalid args, missing paths) |
-| 2 | Partial failure (unreadable files, malformed packages, or unavailable btrfs data) |
-
-## Architecture
-
-```
-pkgds/
-├── Cargo.toml
-├── LICENSE
-├── README.md
-├── docs/
-│   ├── PLAN.md          # Design decisions and data flow
-│   └── TASKS.md         # Implementation tasks
-└── src/
-    ├── main.rs          # CLI (clap), dispatch, output rendering
-    ├── error.rs         # PkgdsError enum
-    ├── config.rs        # Config struct, validation
-    ├── pacman.rs        # Parse pacman.conf, local DB, file manifests
-    ├── scan.rs          # Parallel stat() scanner (rayon)
-    ├── format.rs        # Format string tokenizer and renderer
-    ├── human_size.rs    # Byte → human-readable formatting
-    ├── output.rs        # Color, table formatting
-    └── btrfs.rs         # btrfs on-disk sizes
-```
-
-## Performance
-
-- Full system scan (~1500 packages, ~300K files): **< 2 seconds** on NVMe
-- Single package: **< 10 ms**
-- Built with LTO for optimal release performance
 
 ## License
 
