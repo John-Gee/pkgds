@@ -1,5 +1,7 @@
 # pkgds — Real Disk Usage per Package for Arch Linux
 
+[![AUR](https://img.shields.io/aur/version/pkgds)](https://aur.archlinux.org/packages/pkgds)
+
 `pkgds` reports the **real on-disk size** of each installed Arch Linux package —
 what is actually allocated, including block rounding, compression, hardlinks and
 post-install changes. `expac -Q '%m'` reports only pacman's *declared* size from
@@ -24,15 +26,14 @@ takes under a second warm on NVMe.
 
 ## Installation
 
-Build the bundled `PKGBUILD`:
+`pkgds` is available from the [AUR](https://aur.archlinux.org/packages/pkgds).
+Without an AUR helper:
 
 ```bash
-git clone https://github.com/John-Gee/pkgds
+git clone https://aur.archlinux.org/pkgds.git
 cd pkgds
 makepkg -si
 ```
-
-It's also on the AUR as `pkgds`.
 
 ## Usage
 
