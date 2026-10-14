@@ -2,7 +2,7 @@
 name = "pkgds"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.88"
 description = "Real disk usage per package for Arch Linux"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/John-Gee/pkgds"
