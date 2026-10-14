@@ -445,9 +445,8 @@ mod tests {
 
     #[test]
     fn test_sum_package_files_dedups_hardlinks_and_shared_extents() {
-        let dir = std::env::temp_dir().join("pkgds_test_sweep");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
         let a = dir.join("a");
         let b = dir.join("b");
         let c = dir.join("c_link");
@@ -455,7 +454,7 @@ mod tests {
         std::fs::write(&b, b"bbbb").unwrap();
         std::fs::hard_link(&a, &c).unwrap();
 
-        let dev = std::fs::metadata(&dir).unwrap().dev();
+        let dev = std::fs::metadata(dir).unwrap().dev();
         let ino_a = std::fs::metadata(&a).unwrap().ino();
         let ino_b = std::fs::metadata(&b).unwrap().ino();
         let mut map: HashMap<u64, InodeExtents> = HashMap::new();
@@ -480,15 +479,13 @@ mod tests {
         // shared between `a` and `b` (counted once); inline 10 is added.
         let files = vec![a.clone(), b.clone(), c.clone()];
         assert_eq!(
-            sum_package_files(&files, &dir, Some(dev), &map),
+            sum_package_files(&files, dir, Some(dev), &map),
             Some(4096 + 8192 + 7 + 10)
         );
 
         // Nothing in the map -> None.
         let empty: HashMap<u64, InodeExtents> = HashMap::new();
-        assert_eq!(sum_package_files(&files, &dir, Some(dev), &empty), None);
-
-        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(sum_package_files(&files, dir, Some(dev), &empty), None);
     }
 
     fn test_config(root: &Path) -> Config {
@@ -516,9 +513,8 @@ mod tests {
 
     #[test]
     fn test_package_file_disk_sizes_from_map() {
-        let dir = std::env::temp_dir().join("pkgds_test_file_disk_sizes");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
         let a = dir.join("a");
         let b = dir.join("b");
         let link = dir.join("a_link");
@@ -551,35 +547,30 @@ mod tests {
             metadata_size: 0,
             files: vec![a.clone(), b.clone(), link.clone()],
         };
-        let config = test_config(&dir);
+        let config = test_config(dir);
         let (sizes, total) = package_file_disk_sizes(&entry, &config, Some(&map));
 
         // a: inline 7 + extent 500 (4096); b: inline 10 + extent 501 (8192)
         // (500 already seen); the hardlink shares a's inode -> 0.
         assert_eq!(sizes, vec![4103, 8202, 0]);
         assert_eq!(total, Some(4103 + 8202));
-
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn test_file_extents_skips_symlinks() {
-        let dir = std::env::temp_dir().join("pkgds_test_file_extents_symlink");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
         let target = dir.join("target");
         std::fs::write(&target, b"data").unwrap();
         let link = dir.join("link");
         std::os::unix::fs::symlink("target", &link).unwrap();
 
         // The symlink is skipped (ino stays 0) rather than following to `target`.
-        let ext = file_extents(&link, &dir);
+        let ext = file_extents(&link, dir);
         assert_eq!(ext.ino, 0, "symlinks must be skipped");
         assert!(!ext.found);
 
         // A regular file is still read (ino is set even without btrfs extents).
-        assert_ne!(file_extents(&target, &dir).ino, 0);
-
-        std::fs::remove_dir_all(&dir).ok();
+        assert_ne!(file_extents(&target, dir).ino, 0);
     }
 }

@@ -728,24 +728,22 @@ mod tests {
     #[test]
     fn test_stat_package_single_file() {
         use crate::pacman;
-        // Create a temp file for testing
-        let tmpfile = std::env::temp_dir().join("pkgds_test_unit_1.bin");
+        let dir = tempfile::tempdir().unwrap();
+        let tmpfile = dir.path().join("payload.bin");
         std::fs::write(&tmpfile, b"hello world").unwrap();
 
         let entry = pacman::PackageEntry {
             name: "test_pkg".to_string(),
             version: "1.0-1".to_string(),
             metadata_size: 100,
-            files: vec![tmpfile.clone()],
+            files: vec![tmpfile],
         };
-        let s = stat_package(&entry, Path::new("/"), false, false);
+        let s = stat_package(&entry, dir.path(), false, false);
         let (apparent, real, count, warns) = (s.apparent, s.real, s.count, s.warns);
         assert_eq!(apparent, 11); // "hello world" = 11 bytes
         assert!(real >= apparent); // F4: real size via blocks(512) is always >= apparent
         assert_eq!(count, 1);
         assert!(warns.is_empty());
-
-        std::fs::remove_file(&tmpfile).ok();
     }
 
     #[test]
@@ -1166,8 +1164,9 @@ mod tests {
         report.truncate(3);
         assert_eq!(report.packages.len(), 3);
 
-        // Verify descending order was maintained (largest real_size first) — since all same ratio=0, secondary is name asc
-        assert_ne!(report.packages[0].real_size, report.packages[2].real_size);
+        // Descending by real size: pkg9 (90), pkg8 (80), pkg7 (70).
+        let names: Vec<&str> = report.packages.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["pkg9", "pkg8", "pkg7"]);
     }
 
     #[test]
@@ -1209,24 +1208,20 @@ mod tests {
     fn test_skip_filesystem_marker() {
         use crate::pacman;
         // A real file named `.FILESYSTEM` (pacman's marker) must be skipped.
-        let dir = std::env::temp_dir().join("pkgds_test_filesystem_marker");
-        std::fs::create_dir_all(&dir).unwrap();
-        let marker = dir.join(".FILESYSTEM");
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join(".FILESYSTEM");
         std::fs::write(&marker, b"marker").unwrap();
 
         let entry = pacman::PackageEntry {
             name: "pkg".to_string(),
             version: "1.0-1".to_string(),
             metadata_size: 42,
-            files: vec![marker.clone()],
+            files: vec![marker],
         };
-        let s = stat_package(&entry, Path::new("/"), false, false);
+        let s = stat_package(&entry, dir.path(), false, false);
         let (apparent, real, count, _warns) = (s.apparent, s.real, s.count, s.warns);
         assert_eq!(apparent, 0);
         assert_eq!(real, 0);
         assert_eq!(count, 0);
-
-        std::fs::remove_file(&marker).ok();
-        std::fs::remove_dir(&dir).ok();
     }
 }
