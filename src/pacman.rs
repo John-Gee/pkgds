@@ -45,9 +45,6 @@ pub fn parse_desc(text: &str) -> crate::error::Result<DescFields> {
             if stripped.ends_with('%') {
                 let key = stripped.strip_suffix('%').unwrap_or("").to_string();
                 if !key.is_empty() {
-                    if let Some(prev_key) = current_key.take() {
-                        values.entry(prev_key).or_default();
-                    }
                     current_key = Some(key);
                 } else {
                     // `%` followed by `%` — ignore as malformed header
@@ -64,11 +61,6 @@ pub fn parse_desc(text: &str) -> crate::error::Result<DescFields> {
                 values.entry(k.clone()).or_default().push(line.to_string());
             }
         }
-    }
-
-    // Capture final accumulated values for any remaining key
-    if let Some(prev_key) = current_key.take() {
-        values.entry(prev_key).or_default();
     }
 
     // Extract NAME — must be present and non-empty
@@ -204,8 +196,6 @@ pub fn parse_pacman_conf(path: &Path) -> crate::error::Result<PacmanConf> {
 
             if key.eq_ignore_ascii_case("dbpath") && !value.is_empty() {
                 dbpath = Some(PathBuf::from(value));
-            } else if key.eq_ignore_ascii_case("rootdir") && !value.is_empty() {
-                // Just track it; not needed for our minimal usage yet
             }
         }
     }
@@ -271,19 +261,13 @@ pub fn load_local_db(
 
         let path = entry.path();
 
-        // Skip non-directories
+        // Skip non-directories. ALPM_DB_VERSION is a file, so this also skips
+        // it -- nothing further to do for it.
         if !path.is_dir() {
             continue;
         }
 
         let basename = path.file_name().map(|s| s.to_string_lossy().into_owned());
-
-        // Skip ALPM_DB_VERSION file
-        if let Some(ref name) = basename {
-            if name == "ALPM_DB_VERSION" {
-                continue;
-            }
-        }
 
         let desc_path = path.join("desc");
         let files_path = path.join("files");
@@ -363,12 +347,13 @@ pub fn db_package_names(dbpath: &Path) -> crate::error::Result<HashSet<String>> 
     let mut names = HashSet::new();
     for entry in dirs.flatten() {
         let path = entry.path();
+        // ALPM_DB_VERSION is a file, so the is_dir() test skips it too.
         if !path.is_dir() || !path.join("desc").is_file() {
             continue;
         }
         let basename = match path.file_name().and_then(|s| s.to_str()) {
-            Some(b) if b != "ALPM_DB_VERSION" => b,
-            _ => continue,
+            Some(b) => b,
+            None => continue,
         };
         let name = std::fs::read_to_string(path.join("desc"))
             .ok()
