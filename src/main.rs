@@ -65,6 +65,18 @@ fn main() {
                 .collect::<Vec<_>>()
                 .join(&cfg.delim)
         } else if cfg.depth.is_some() {
+            // The tree keeps every row in one unit, so packages the view
+            // cannot measure are left out. Say so, rather than let them look
+            // like they vanished.
+            if report.trees_omitted > 0 {
+                eprint_error(
+                    &format!(
+                        "{} package(s) have no btrfs on-disk data and are not shown in the tree",
+                        report.trees_omitted
+                    ),
+                    use_color,
+                );
+            }
             output::render_tree(&report, &cfg)
         } else {
             output::render_table(&report, &cfg)

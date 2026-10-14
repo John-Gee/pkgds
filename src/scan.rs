@@ -75,6 +75,9 @@ pub struct ScanReport {
     pub total_disk: u64,
     /// Per-package file trees for the shown packages (empty unless the tree view is on).
     pub trees: Vec<PackageTree>,
+    /// Packages left out of the tree view because it is measured in btrfs
+    /// bytes and they have none (always 0 when the view uses real bytes).
+    pub trees_omitted: usize,
     /// Explicitly requested package names that matched nothing in the database.
     pub missing_targets: Vec<String>,
 }
@@ -89,6 +92,57 @@ impl PackageResult {
                 Some(compressed as f64 / self.apparent_size as f64 * 100.0)
             }
             _ => None,
+        }
+    }
+}
+
+/// Which byte metric every row of a tree view is measured in.
+///
+/// A tree row's percentage is that row's bytes over the report-wide total, so
+/// all rows in one view must use the same unit: a package measured in real
+/// bytes against a btrfs grand total would report nonsense percentages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreeMetric {
+    /// btrfs on-disk bytes (the DISK column).
+    Disk,
+    /// `st_blocks * 512`.
+    Real,
+    /// `st_size`.
+    Apparent,
+}
+
+impl TreeMetric {
+    /// The metric for a whole report. btrfs bytes only win once the scan has
+    /// actually produced some: with `--btrfs` on a filesystem that has none
+    /// (or no permission to read), every package falls back to real or
+    /// apparent bytes -- and then all of them must, consistently.
+    pub fn for_report(config: &Config, report: &ScanReport) -> Self {
+        if config.btrfs && report.total_disk > 0 {
+            TreeMetric::Disk
+        } else if config.apparent_size {
+            TreeMetric::Apparent
+        } else {
+            TreeMetric::Real
+        }
+    }
+
+    /// The report-wide total that row percentages are relative to.
+    pub fn grand_total(self, report: &ScanReport) -> u64 {
+        match self {
+            TreeMetric::Disk => report.total_disk,
+            TreeMetric::Apparent => report.total_apparent,
+            TreeMetric::Real => report.total_real,
+        }
+    }
+
+    /// A package's total in this metric, or `None` when the package has no
+    /// btrfs on-disk data and the view is measured in DISK bytes. Such a
+    /// package is left out of the tree rather than shown in a second unit.
+    pub fn package_total(self, pkg: &PackageResult) -> Option<u64> {
+        match self {
+            TreeMetric::Disk => pkg.btrfs_disk,
+            TreeMetric::Apparent => Some(pkg.apparent_size),
+            TreeMetric::Real => Some(pkg.real_size),
         }
     }
 }
@@ -322,6 +376,7 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
         total_files,
         total_disk,
         trees: Vec::new(),
+        trees_omitted: 0,
         missing_targets,
     };
 
@@ -345,27 +400,25 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
             .enumerate()
             .map(|(i, e)| (e.name.as_str(), i))
             .collect();
+        // Contract: every row of a tree view is measured in one metric, so a
+        // package the view cannot measure (no btrfs on-disk data) is left out
+        // instead of being rendered in a different unit from the grand total.
+        let metric = TreeMetric::for_report(config, &result);
         result.trees = result
             .packages
             .iter()
             .filter_map(|pkg| {
+                let total = metric.package_total(pkg)?;
                 let idx = *index_by_name.get(pkg.name.as_str())?;
                 let entry = &entries[idx];
-                // With --btrfs the tree is built from per-file on-disk (DISK)
-                // bytes; otherwise from the real/apparent sizes already stat'd.
-                let (sizes, total) = match pkg.btrfs_disk {
-                    Some(disk) => (
-                        btrfs::package_file_disk_sizes(entry, config, btrfs_map.as_ref()).0,
-                        disk,
-                    ),
-                    None => (
-                        scanned[idx].sizes.clone(),
-                        if use_apparent {
-                            pkg.apparent_size
-                        } else {
-                            pkg.real_size
-                        },
-                    ),
+                let sizes = match metric {
+                    // With --btrfs the tree is built from per-file on-disk
+                    // (DISK) bytes; otherwise from the real/apparent sizes
+                    // already stat'd.
+                    TreeMetric::Disk => {
+                        btrfs::package_file_disk_sizes(entry, config, btrfs_map.as_ref()).0
+                    }
+                    _ => scanned[idx].sizes.clone(),
                 };
                 let files: Vec<(std::path::PathBuf, u64)> = entry
                     .files
@@ -376,6 +429,7 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
                 Some(build_package_tree(&pkg.name, total, &files))
             })
             .collect();
+        result.trees_omitted = result.packages.len() - result.trees.len();
     }
 
     Ok(result)
@@ -441,6 +495,114 @@ impl ScanReport {
 mod tests {
     use super::*;
     use std::path::{Path, PathBuf};
+
+    fn tree_test_config(btrfs: bool, apparent: bool) -> Config {
+        Config {
+            root: PathBuf::from("/"),
+            dbpath: PathBuf::from("/var/lib/pacman"),
+            targets: vec![],
+            search: None,
+            sort: SortField::Real,
+            limit: None,
+            btrfs,
+            verbose: false,
+            format: None,
+            humansize: None,
+            delim: "\n".to_string(),
+            no_color: true,
+            apparent_size: apparent,
+            total: false,
+            files: false,
+            depth: Some(1),
+            breadth: 5,
+            min_percent: 0.0,
+        }
+    }
+
+    #[test]
+    fn test_tree_metric_prefers_disk_only_when_disk_data_exists() {
+        // Contract: DISK bytes win whenever the scan produced some.
+        let report = ScanReport {
+            total_disk: 40,
+            total_real: 100,
+            total_apparent: 90,
+            ..Default::default()
+        };
+        assert_eq!(
+            TreeMetric::for_report(&tree_test_config(true, false), &report),
+            TreeMetric::Disk
+        );
+    }
+
+    #[test]
+    fn test_tree_metric_falls_back_when_no_disk_data_exists() {
+        // Contract: --btrfs with no on-disk data (wrong filesystem, or no
+        // permission) must not leave the view in mixed units; it falls back
+        // to real or apparent bytes for every package.
+        let report = ScanReport {
+            total_disk: 0,
+            total_real: 100,
+            total_apparent: 90,
+            ..Default::default()
+        };
+        assert_eq!(
+            TreeMetric::for_report(&tree_test_config(true, false), &report),
+            TreeMetric::Real
+        );
+        assert_eq!(
+            TreeMetric::for_report(&tree_test_config(true, true), &report),
+            TreeMetric::Apparent
+        );
+        assert_eq!(
+            TreeMetric::for_report(&tree_test_config(false, false), &report),
+            TreeMetric::Real
+        );
+    }
+
+    #[test]
+    fn test_tree_metric_leaves_out_packages_it_cannot_measure() {
+        // Contract: in a DISK view a package with no on-disk data is omitted
+        // rather than rendered in real bytes against a DISK total (which would
+        // report percentages over 100%).
+        let with_disk = PackageResult {
+            name: "a".into(),
+            version: "1.0-1".into(),
+            real_size: 100,
+            apparent_size: 90,
+            file_count: 1,
+            metadata_size: 0,
+            btrfs_disk: Some(40),
+        };
+        let without_disk = PackageResult {
+            name: "b".into(),
+            version: "1.0-1".into(),
+            real_size: 200,
+            apparent_size: 180,
+            file_count: 1,
+            metadata_size: 0,
+            btrfs_disk: None,
+        };
+
+        assert_eq!(TreeMetric::Disk.package_total(&with_disk), Some(40));
+        assert_eq!(TreeMetric::Disk.package_total(&without_disk), None);
+
+        // Real/apparent views measure every package, disk data or not.
+        assert_eq!(TreeMetric::Real.package_total(&without_disk), Some(200));
+        assert_eq!(TreeMetric::Apparent.package_total(&without_disk), Some(180));
+    }
+
+    #[test]
+    fn test_tree_metric_grand_total_matches_its_unit() {
+        let report = ScanReport {
+            total_disk: 40,
+            total_real: 100,
+            total_apparent: 90,
+            ..Default::default()
+        };
+        assert_eq!(TreeMetric::Disk.grand_total(&report), 40);
+        assert_eq!(TreeMetric::Real.grand_total(&report), 100);
+        assert_eq!(TreeMetric::Apparent.grand_total(&report), 90);
+    }
 
     #[test]
     fn test_stat_package_empty() {

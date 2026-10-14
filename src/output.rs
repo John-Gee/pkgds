@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::human_size::{format_size, UnitSpec};
 
-use crate::scan::{PackageResult, ScanReport};
+use crate::scan::{PackageResult, ScanReport, TreeMetric};
 use crate::tree::TreeNode;
 
 use std::io::IsTerminal;
@@ -399,16 +399,10 @@ pub fn render_tree(report: &ScanReport, cfg: &Config) -> String {
     use owo_colors::OwoColorize;
 
     let has_color = color_enabled(cfg);
-    // With --btrfs the tree rows are on-disk (DISK) bytes, so percentages are
-    // relative to the on-disk grand total.
-    let btrfs_active = cfg.btrfs && report.total_disk > 0;
-    let grand_total = if btrfs_active {
-        report.total_disk
-    } else if cfg.apparent_size {
-        report.total_apparent
-    } else {
-        report.total_real
-    };
+    // Every row shares one metric: with --btrfs the rows are on-disk (DISK)
+    // bytes and percentages are relative to the on-disk grand total.
+    let metric = TreeMetric::for_report(cfg, report);
+    let grand_total = metric.grand_total(report);
     let depth = cfg.depth.unwrap_or(0);
 
     let mut lines: Vec<TreeLine> = Vec::new();
