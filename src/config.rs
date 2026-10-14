@@ -25,7 +25,9 @@ pub enum SortField {
 )]
 pub struct RawArgs {
     /// Format string (printf-style) or package names
-    #[arg(trailing_var_arg = true)]
+    ///
+    /// Flags may follow package names (`pkgds bash --btrfs`). A format string
+    /// that starts with `-` therefore needs the `--` separator.
     pub positional: Vec<String>,
 
     /// Human-size unit (B, K, Ki, M, Mi, G, Gi, T, Ti, auto, auto-si)
@@ -422,7 +424,6 @@ mod tests {
 
     #[test]
     fn test_root_nonexistent_error() {
-        // Put --root BEFORE positionals so trailing_var_arg doesn't swallow it
         let raw =
             <RawArgs as clap::Parser>::parse_from(["pkgds", "--root", "/nonexistent_path_xyz"]);
         let result = raw.into_config();
@@ -431,10 +432,47 @@ mod tests {
 
     #[test]
     fn test_dbpath_relative_error() {
-        // Put --dbpath BEFORE positionals so trailing_var_arg doesn't swallow it
         let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "--dbpath", "relative/path"]);
         let result = raw.into_config();
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_flags_after_package_names_are_still_flags() {
+        // `pkgds bash --btrfs` must read --btrfs as the flag it is. With
+        // trailing_var_arg it became a package name: "no such package: --btrfs".
+        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "bash", "--btrfs"]);
+        let config = raw.into_config().unwrap();
+        assert!(config.btrfs);
+        assert_eq!(config.targets, vec!["bash".to_string()]);
+    }
+
+    #[test]
+    fn test_flags_after_positionals_parse_in_every_order() {
+        let raw = <RawArgs as clap::Parser>::parse_from([
+            "pkgds", "bash", "grep", "--limit", "5", "-H", "Mi", "--files",
+        ]);
+        let config = raw.into_config().unwrap();
+        assert_eq!(config.targets, vec!["bash".to_string(), "grep".to_string()]);
+        assert_eq!(config.limit, Some(5));
+        assert!(config.files);
+        assert!(matches!(
+            config.humansize,
+            Some(crate::human_size::UnitSpec::Mi)
+        ));
+    }
+
+    #[test]
+    fn test_leading_hyphen_format_string_needs_the_separator() {
+        // Flags may follow package names, so a format string starting with '-'
+        // has to be introduced by `--` (clap would otherwise read it as a
+        // flag).
+        let err = <RawArgs as clap::Parser>::try_parse_from(["pkgds", "-%m"]).unwrap_err();
+        assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
+        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "--", "-%m"]);
+        let config = raw.into_config().unwrap();
+        assert!(config.format.is_some());
+        assert!(config.targets.is_empty());
     }
 
     #[test]
