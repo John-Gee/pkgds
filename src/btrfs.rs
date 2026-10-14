@@ -19,6 +19,18 @@ pub enum BtrfsStatus {
     PermissionDenied,
 }
 
+/// The key range used to probe for btrfs support.
+///
+/// `tree_search_v2` walks its whole range item by item, so this range must be
+/// empty: objectid 0 is never allocated in a subvolume's fs tree (the first
+/// free objectid is 256), so the kernel answers a single ioctl with zero
+/// items. A whole-subvolume range here would sweep every extent item on every
+/// `--btrfs` run — including the targeted queries whose entire point is to
+/// avoid a sweep.
+fn probe_filter() -> SearchFilter {
+    SearchFilter::for_objectid_range(0, BTRFS_EXTENT_DATA_KEY, 0, 0)
+}
+
 /// Probe whether `root` is on a btrfs filesystem by attempting the tree
 /// search ioctl on the root directory.
 pub fn detect_btrfs(root: &Path) -> BtrfsStatus {
@@ -26,8 +38,7 @@ pub fn detect_btrfs(root: &Path) -> BtrfsStatus {
         Ok(f) => f,
         Err(_) => return BtrfsStatus::No,
     };
-    let filter = SearchFilter::for_type(0, BTRFS_EXTENT_DATA_KEY);
-    match tree_search_v2(file.as_fd(), filter, Some(4096), |_, _| Ok(())) {
+    match tree_search_v2(file.as_fd(), probe_filter(), Some(4096), |_, _| Ok(())) {
         Ok(()) => BtrfsStatus::Yes,
         Err(nix::errno::Errno::ENOTTY)
         | Err(nix::errno::Errno::ENOPROTOOPT)
@@ -394,6 +405,19 @@ mod tests {
             inline_bytes,
             found,
         }
+    }
+
+    #[test]
+    fn test_probe_filter_is_an_empty_objectid_range() {
+        // Contract: the btrfs probe must not sweep the subvolume. The crate
+        // walks the entire key range, so a probe built from `for_type`
+        // (objectid 0..u64::MAX) reads every extent item in the filesystem
+        // before the scan does anything useful.
+        let filter = probe_filter();
+        assert_eq!(filter.tree_id, 0);
+        assert_eq!(filter.start.objectid, 0);
+        assert_eq!(filter.end.objectid, 0, "probe must cover a single objectid");
+        assert_eq!(filter.start.item_type, filter.end.item_type);
     }
 
     #[test]
