@@ -13,9 +13,24 @@ pub enum UnitSpec {
     AutoSi,
 }
 
+/// Split `num / den` into an integer part and one decimal digit, rounding
+/// halves up.
+///
+/// The old form computed `(num * 10) / den` with integer division, which
+/// truncates: 256 bytes is exactly 0.25 KiB, so the tenths digit came out as
+/// 2 ("0.2 KiB") instead of rounding to 3 ("0.3 KiB"). It also overflowed for
+/// any size above ~1.8 EB. Splitting the quotient from the remainder keeps
+/// every intermediate far below `u64::MAX`, since `rem < den`.
 fn round_half_up_scaled(num: u64, den: u64) -> (u64, u32) {
-    let scaled = num * 10 / den;
-    (scaled / 10, (scaled % 10) as u32)
+    let whole = num / den;
+    let rem = num % den;
+    // round-half-up of `10 * rem / den`, which can carry into `whole`.
+    let tenths = (20 * rem + den) / (2 * den);
+    if tenths >= 10 {
+        (whole + 1, 0)
+    } else {
+        (whole, tenths as u32)
+    }
 }
 
 /// Format using one fixed unit: divide, one decimal (round-half-up), suffix.
@@ -82,6 +97,27 @@ fn format_auto(bytes: u64, is_iec: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_rounds_halves_up_at_the_tenths_digit() {
+        // 256/1024 is exactly 0.25 KiB: the tenths digit is exactly 2.5, so
+        // it rounds up. Truncating division reported "0.2 KiB".
+        assert_eq!(format_size(256, UnitSpec::Ki), "0.3 KiB");
+        assert_eq!(format_size(1536, UnitSpec::Ki), "1.5 KiB");
+        assert_eq!(format_size(1_536_000, UnitSpec::M), "1.5 M");
+        // 9950/1000 is 9.95: the tenth rounds up to 10 and carries.
+        assert_eq!(format_size(9_950, UnitSpec::K), "10.0 K");
+    }
+
+    #[test]
+    fn test_half_up_rounding_does_not_overflow_on_huge_sizes() {
+        // The old `(num * 10) / den` overflowed a u64 debug build here.
+        let num = u64::MAX / 2;
+        let (int_part, frac) = round_half_up_scaled(num, 1024);
+        let expected_tenths = ((num as u128) * 20 + 1024) / (2 * 1024);
+        assert_eq!(int_part as u128 * 10 + frac as u128, expected_tenths);
+        assert!(frac <= 9);
+    }
 
     #[test]
     fn test_raw_zero() {
