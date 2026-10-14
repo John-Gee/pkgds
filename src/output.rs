@@ -8,23 +8,28 @@ use std::io::IsTerminal;
 use unicode_width::UnicodeWidthStr;
 
 /// Strip ANSI escape sequences from a string, returning only visible text.
+///
+/// Contract: only U+001B introduces a sequence. Comparing `c as u8 == 0x1b`
+/// also matches any character whose low byte happens to be 0x1b (U+011B
+/// 'ě', for one), which silently ate the rest of the name and threw the
+/// column width out.
 fn strip_ansi(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
-        if c as u8 == 0x1b {
+        if c == '\x1b' {
             // Skip the CSI introducer byte '[' (0x5B) if present
             if chars.peek().copied() == Some('[') {
                 chars.next();
             }
-            // Skip remaining bytes until a final byte (0x40-0x7E) is found
+            // Skip to the sequence's final byte, which ECMA-48 puts in
+            // 0x40..=0x7E. '?' (0x3F) is a parameter byte rather than a
+            // final one, so `\x1b[?25l` has to skip past it.
             while let Some(next) = chars.peek().copied() {
-                let b = next as u8;
-                if (0x40..=0x7E).contains(&b) || b == 0x3F {
-                    chars.next();
+                chars.next();
+                if next.is_ascii() && ('\x40'..='\x7E').contains(&next) {
                     break;
                 }
-                chars.next();
             }
         } else {
             result.push(c);
@@ -545,6 +550,42 @@ mod tests {
             breadth: 5,
             min_percent: 0.0,
         }
+    }
+
+    #[test]
+    fn test_strip_ansi_keeps_characters_that_only_look_like_esc() {
+        // U+011B (g with circumflex) has low byte 0x1B, so a `c as u8 == 0x1b` test
+        // would take it for an escape introducer and swallow the rest.
+        assert_eq!(strip_ansi("\u{11b}pkg"), "\u{11b}pkg");
+        assert_eq!(strip_ansi("\u{11b}"), "\u{11b}");
+        assert_eq!(strip_ansi("café \u{11b}"), "café \u{11b}");
+    }
+
+    #[test]
+    fn test_strip_ansi_removes_sgr_sequences() {
+        assert_eq!(strip_ansi("\x1b[36m1.0 GiB\x1b[0m"), "1.0 GiB");
+        assert_eq!(strip_ansi("\x1b[1m\x1b[33mSHOWN\x1b[0m"), "SHOWN");
+        assert_eq!(strip_ansi("plain"), "plain");
+    }
+
+    #[test]
+    fn test_strip_ansi_skips_csi_parameter_bytes() {
+        // '?' (0x3F) is a parameter byte, not the final byte; stopping there
+        // left "25ltext" in the visible text and broke the column width.
+        assert_eq!(strip_ansi("\x1b[?25ltext"), "text");
+        assert_eq!(strip_ansi("\x1b[?1049htext\x1b[?1049l"), "text");
+    }
+
+    #[test]
+    fn test_column_padding_uses_visible_width_for_non_ascii() {
+        let col = Column {
+            title: "PACKAGE",
+            width: 8,
+            right_align: false,
+        };
+        // U+011B is one column wide, so padding is one character plus seven
+        // spaces -- with the escape bug it was measured as empty.
+        assert_eq!(col.pad("\u{11b}", false, Style::Plain), "\u{11b}       ");
     }
 
     #[test]
