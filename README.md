@@ -96,7 +96,14 @@ pkgds --root /mnt/arch --dbpath /mnt/arch/var/lib/pacman -H auto
 | `-h, --help` | — | Print help |
 
 `%` is each package's share of the total size of all matching packages; it's
-omitted when only one package matches.
+omitted when only one package matches. Flags may follow package names
+(`pkgds bash --btrfs`); a format string starting with `-` needs `--` first.
+
+`--tree` replaces the table; `--total` and `--files` describe the table and
+are ignored in the tree view, and a format string takes precedence over
+`--tree`. With `--btrfs` the tree is measured in on-disk bytes, so a package
+with no on-disk data is left out and reported on stderr rather than shown in
+a second unit.
 
 ### Format Tokens
 
@@ -107,10 +114,28 @@ with exactly the fields you ask for — useful for scripting and pipes.
 |-------|-------|--------|
 | `%n` | Package name | `desc` file `%NAME%` |
 | `%v` | Package version | `desc` file `%VERSION%` |
-| `%m` | Real disk usage | `stat() st_blocks * 512`; hardlinked inodes counted once |
-| `%a` | Apparent size | `stat() st_size`; hardlinked inodes counted once |
+| `%m` | Real disk usage | `stat() st_blocks * 512`; hardlinked inodes counted once per package, symlinks skipped |
+| `%a` | Apparent size | `stat() st_size`; same rules as `%m` |
 | `%f` | File count | unique regular files (hardlinked inodes counted once) |
 | `%p` | Metadata size | `desc` file `%SIZE%` |
-| `%z` | btrfs on-disk usage | all file extents via btrfs ioctls, compressed or not (requires `--btrfs` + root) |
+| `%z` | btrfs on-disk usage | all file extents via btrfs ioctls, compressed or not (requires `--btrfs` + root; only files on the subvolume `--root` lives in) |
 | `%r` | btrfs ratio | `(%z / %a) * 100`; 100% = uncompressed |
 | `%%` | Literal `%` | — |
+
+Sizes come from the manifest rather than a directory walk, so three things
+differ from `du`: symlinks are skipped, a hardlinked inode is counted once
+*per package* (so two packages sharing a library each claim it, and a
+`--total` grand total is the sum of those claims), and files a package no
+longer owns are excluded.
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Usage error (invalid args, missing paths), or nothing matched at all |
+| 2 | Partial result: some file could not be read, some package was malformed, btrfs data was unavailable, or some requested package names were unknown |
+
+A full scan exits 2 whenever any package owns a file this user cannot read —
+mode-600 files owned by root are enough — so treat 2 as "numbers are a lower
+bound", not as failure.
