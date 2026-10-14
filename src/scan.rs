@@ -9,7 +9,7 @@ use std::io::{IsTerminal, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone)]
 enum StatResult {
     Success {
         apparent: u64,
@@ -19,7 +19,24 @@ enum StatResult {
     },
     NotFound,
     PermissionDenied,
+    /// Any other stat failure (I/O error, symlink loop, name too long, ...),
+    /// with the errno text for the diagnostic.
+    Io(String),
     Symlink,
+}
+
+/// Classify a stat failure.
+///
+/// Contract: only `EACCES`/`EPERM` is a permission problem. Anything else --
+/// an I/O error, `ELOOP`, `ENAMETOOLONG`, a malformed path -- is a read
+/// failure of its own, and reporting it as "permission denied" sends the
+/// reader (and the exit code) after the wrong cause.
+fn classify_stat_error(err: std::io::Error) -> StatResult {
+    match err.kind() {
+        std::io::ErrorKind::NotFound => StatResult::NotFound,
+        std::io::ErrorKind::PermissionDenied => StatResult::PermissionDenied,
+        _ => StatResult::Io(err.to_string()),
+    }
 }
 
 fn stat_file(path: &Path) -> StatResult {
@@ -41,9 +58,7 @@ fn stat_file(path: &Path) -> StatResult {
                 }
             }
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => StatResult::NotFound,
-        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => StatResult::PermissionDenied,
-        Err(_) => StatResult::PermissionDenied,
+        Err(e) => classify_stat_error(e),
     }
 }
 
@@ -64,7 +79,10 @@ pub struct PackageResult {
 pub struct ScanReport {
     pub packages: Vec<PackageResult>,
     pub skipped_packages: usize,
+    /// Files that could not be read because this process lacks permission.
     pub permission_errors: usize,
+    /// Files that failed to stat for any other reason (I/O error, `ELOOP`, ...).
+    pub read_errors: usize,
     pub errors: Vec<String>,
     pub warnings: Vec<String>,
     /// Grand totals over all matching packages, before `limit` is applied.
@@ -153,6 +171,10 @@ struct PkgStat {
     real: u64,
     count: u64,
     warns: Vec<String>,
+    /// Warnings about files this process was not allowed to read.
+    permission_errors: usize,
+    /// Warnings about files that failed for some other reason.
+    read_errors: usize,
     /// Per-file attributed bytes, aligned with `PackageEntry.files`; empty
     /// unless per-file sizes were requested (tree view).
     sizes: Vec<u64>,
@@ -168,6 +190,8 @@ fn stat_package(
     let mut real = 0u64;
     let mut count = 0u64;
     let mut warns: Vec<String> = Vec::new();
+    let mut permission_errors = 0usize;
+    let mut read_errors = 0usize;
     let mut sizes = if collect_sizes {
         vec![0u64; entry.files.len()]
     } else {
@@ -213,9 +237,18 @@ fn stat_package(
                 // Missing file — not an error, skip silently
             }
             StatResult::PermissionDenied => {
+                permission_errors += 1;
                 warns.push(format!(
                     "Permission error reading file: {}",
                     file_path.display()
+                ));
+            }
+            StatResult::Io(msg) => {
+                read_errors += 1;
+                warns.push(format!(
+                    "Error reading file {}: {}",
+                    file_path.display(),
+                    msg
                 ));
             }
             StatResult::Symlink => {
@@ -229,6 +262,8 @@ fn stat_package(
         real,
         count,
         warns,
+        permission_errors,
+        read_errors,
         sizes,
     }
 }
@@ -269,6 +304,7 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
             packages: vec![],
             skipped_packages: skipped,
             permission_errors: 0,
+            read_errors: 0,
             errors: load_errors,
             warnings: Vec::new(),
             missing_targets,
@@ -280,7 +316,8 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
     let sort = config.sort;
 
     // Collect warnings from file scanning
-    let mut all_warns_count = 0usize;
+    let mut perm_warn_count = 0usize;
+    let mut read_warn_count = 0usize;
     let mut all_warns: Vec<String> = Vec::new();
 
     // Query btrfs on-disk sizes if enabled. A full scan builds a subvolume-wide
@@ -337,7 +374,8 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
         .zip(scanned.iter())
         .zip(btrfs_disk.iter())
         .map(|((entry, stat), &comp)| -> PackageResult {
-            all_warns_count += stat.warns.len();
+            perm_warn_count += stat.permission_errors;
+            read_warn_count += stat.read_errors;
             all_warns.extend(stat.warns.iter().cloned());
 
             PackageResult {
@@ -362,7 +400,8 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
     let mut result = ScanReport {
         packages,
         skipped_packages: skipped,
-        permission_errors: all_warns_count,
+        permission_errors: perm_warn_count,
+        read_errors: read_warn_count,
         errors: {
             // Malformed-package diagnostics plus btrfs errors.
             let mut errors = load_errors;
@@ -605,6 +644,71 @@ mod tests {
     }
 
     #[test]
+    fn test_classify_separates_permission_from_other_failures() {
+        // Contract: only EACCES/EPERM counts as a permission problem. The
+        // catch-all used to answer PermissionDenied for every kind of
+        // failure, so an I/O error or a symlink loop was reported as one.
+        assert!(matches!(
+            classify_stat_error(std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
+            StatResult::PermissionDenied
+        ));
+        assert!(matches!(
+            classify_stat_error(std::io::Error::from(std::io::ErrorKind::NotFound)),
+            StatResult::NotFound
+        ));
+        for kind in [
+            std::io::ErrorKind::InvalidInput,
+            std::io::ErrorKind::InvalidData,
+            std::io::ErrorKind::Other,
+        ] {
+            assert!(
+                matches!(
+                    classify_stat_error(std::io::Error::from(kind)),
+                    StatResult::Io(..)
+                ),
+                "{kind:?} must not be reported as a permission error"
+            );
+        }
+        // ELOOP (40 on Linux) is a symlink loop, not a permission problem.
+        assert!(matches!(
+            classify_stat_error(std::io::Error::from_raw_os_error(40)),
+            StatResult::Io(..)
+        ));
+    }
+
+    #[test]
+    fn test_stat_file_reports_other_failures_as_io_errors() {
+        // A path with an embedded NUL fails EINVAL/InvalidInput.
+        match stat_file(Path::new("nul\0byte")) {
+            StatResult::Io(msg) => {
+                assert!(!msg.is_empty(), "the diagnostic must name the error");
+            }
+            other => panic!("expected an I/O error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_stat_package_warns_about_other_failures_without_saying_permission() {
+        use crate::pacman;
+        let entry = pacman::PackageEntry {
+            name: "pkg".to_string(),
+            version: "1.0-1".to_string(),
+            metadata_size: 0,
+            files: vec![PathBuf::from("nul\0byte")],
+        };
+        let s = stat_package(&entry, Path::new("/"), false, false);
+        assert_eq!(s.permission_errors, 0, "not a permission problem");
+        assert_eq!(s.read_errors, 1);
+        assert_eq!(s.warns.len(), 1);
+        assert!(
+            s.warns[0].starts_with("Error reading file"),
+            "got: {}",
+            s.warns[0]
+        );
+        assert!(!s.warns[0].contains("Permission"), "got: {}", s.warns[0]);
+    }
+
+    #[test]
     fn test_stat_package_empty() {
         use crate::pacman;
         let entry = pacman::PackageEntry {
@@ -695,6 +799,7 @@ mod tests {
             ],
             skipped_packages: 0,
             permission_errors: 0,
+            read_errors: 0,
             errors: vec![],
             warnings: vec![],
             ..Default::default()
@@ -739,6 +844,7 @@ mod tests {
             ],
             skipped_packages: 0,
             permission_errors: 0,
+            read_errors: 0,
             errors: vec![],
             warnings: vec![],
             ..Default::default()
@@ -774,6 +880,7 @@ mod tests {
             ],
             skipped_packages: 0,
             permission_errors: 0,
+            read_errors: 0,
             errors: vec![],
             warnings: vec![],
             ..Default::default()
@@ -808,6 +915,7 @@ mod tests {
             ],
             skipped_packages: 0,
             permission_errors: 0,
+            read_errors: 0,
             errors: vec![],
             warnings: vec![],
             ..Default::default()
@@ -851,6 +959,7 @@ mod tests {
             ],
             skipped_packages: 0,
             permission_errors: 0,
+            read_errors: 0,
             errors: vec![],
             warnings: vec![],
             ..Default::default()
@@ -895,6 +1004,7 @@ mod tests {
             ],
             skipped_packages: 0,
             permission_errors: 0,
+            read_errors: 0,
             errors: vec![],
             warnings: vec![],
             ..Default::default()
@@ -934,6 +1044,7 @@ mod tests {
             ],
             skipped_packages: 0,
             permission_errors: 0,
+            read_errors: 0,
             errors: vec![],
             warnings: vec![],
             ..Default::default()
@@ -954,6 +1065,7 @@ mod tests {
             ],
             skipped_packages: 0,
             permission_errors: 0,
+            read_errors: 0,
             errors: vec![],
             warnings: vec![],
             ..Default::default()
@@ -976,6 +1088,7 @@ mod tests {
             ],
             skipped_packages: 0,
             permission_errors: 0,
+            read_errors: 0,
             errors: vec![],
             warnings: vec![],
             ..Default::default()
@@ -996,6 +1109,7 @@ mod tests {
             ],
             skipped_packages: 0,
             permission_errors: 0,
+            read_errors: 0,
             errors: vec![],
             warnings: vec![],
             ..Default::default()
@@ -1043,6 +1157,7 @@ mod tests {
             packages: entries,
             skipped_packages: 0,
             permission_errors: 0,
+            read_errors: 0,
             errors: vec![],
             warnings: vec![],
             ..Default::default()
@@ -1073,6 +1188,7 @@ mod tests {
             packages: entries,
             skipped_packages: 0,
             permission_errors: 0,
+            read_errors: 0,
             errors: vec![],
             warnings: vec![],
             ..Default::default()

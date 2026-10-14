@@ -87,7 +87,9 @@ fn main() {
     // Exit codes: 2 when a package or file could not be fully scanned, or some
     // (but not all) requested targets were unknown; 1 when nothing matched at
     // all (unknown targets, an empty search, or an empty database).
-    if report.skipped_packages + report.permission_errors > 0 || !report.errors.is_empty() {
+    if report.skipped_packages + report.permission_errors + report.read_errors > 0
+        || !report.errors.is_empty()
+    {
         std::process::exit(2);
     }
     if !report.missing_targets.is_empty() && !report.packages.is_empty() {
