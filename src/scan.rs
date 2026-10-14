@@ -359,7 +359,7 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
             let stat = stat_package(entry, &config.root, collect_sizes, use_apparent);
             if show_progress {
                 let done = progress.fetch_add(1, Ordering::Relaxed) + 1;
-                if done % 128 == 0 || done == total_entries {
+                if done.is_multiple_of(128) || done == total_entries {
                     eprint!("\r\x1B[KScanning ({}/{})...", done, total_entries);
                     let _ = std::io::stderr().flush();
                 }
