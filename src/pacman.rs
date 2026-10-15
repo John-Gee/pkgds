@@ -295,7 +295,11 @@ pub fn load_local_db(
     for entry_result in dirs {
         let entry = match entry_result {
             Ok(e) => e,
-            Err(_) => continue,
+            Err(e) => {
+                skipped += 1;
+                errors.push(format!("Failed to read a database entry: {}", e));
+                continue;
+            }
         };
 
         let path = entry.path();
@@ -311,8 +315,14 @@ pub fn load_local_db(
         let desc_path = path.join("desc");
         let files_path = path.join("files");
 
-        // Only process directories that have a desc file
+        // Every package directory has a desc; one without is a corrupt entry
+        // that must be counted, not silently skipped.
         if !desc_path.is_file() {
+            skipped += 1;
+            errors.push(format!(
+                "No desc file for {}",
+                basename.clone().unwrap_or_default()
+            ));
             continue;
         }
 
@@ -342,10 +352,19 @@ pub fn load_local_db(
             }
         };
 
-        // Read and parse files (missing = empty vec)
+        // Read and parse files. A missing manifest is an empty package; an
+        // unreadable one is a corrupt entry we must not silently report as 0.
         let files = match std::fs::read_to_string(&files_path) {
             Ok(c) => parse_files(&c),
-            Err(_) => Vec::new(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => {
+                skipped += 1;
+                errors.push(format!(
+                    "Failed to read files for {}: {}",
+                    desc_fields.name, e
+                ));
+                continue;
+            }
         };
 
         // Apply filter
@@ -714,5 +733,56 @@ mod tests {
         let names = db_package_names(&dbpath).unwrap();
         assert!(names.contains("pkg-a"), "got: {names:?}");
         assert!(names.contains("pkg-b"), "got: {names:?}");
+    }
+
+    #[test]
+    fn test_load_local_db_counts_desc_less_directory() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let dbpath = tmpdir.path().join("db");
+        std::fs::create_dir_all(dbpath.join("local").join("no-desc-1.0-1")).unwrap();
+
+        let (entries, skipped, errors) = load_local_db(
+            &dbpath,
+            &Filter {
+                targets: vec![],
+                search: None,
+            },
+        )
+        .unwrap();
+
+        assert!(entries.is_empty());
+        assert_eq!(skipped, 1);
+        assert!(
+            errors.iter().any(|e| e.contains("No desc file")),
+            "got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_load_local_db_counts_unreadable_files_manifest() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let dbpath = tmpdir.path().join("db");
+        let pkg = dbpath.join("local").join("pkg-1.0-1");
+        std::fs::create_dir_all(&pkg).unwrap();
+        std::fs::write(pkg.join("desc"), "%NAME%\npkg\n%VERSION%\n1.0-1\n").unwrap();
+        // A directory where the `files` manifest should be: reading it as a
+        // file fails with something other than NotFound.
+        std::fs::create_dir_all(pkg.join("files")).unwrap();
+
+        let (entries, skipped, errors) = load_local_db(
+            &dbpath,
+            &Filter {
+                targets: vec![],
+                search: None,
+            },
+        )
+        .unwrap();
+
+        assert!(entries.is_empty());
+        assert_eq!(skipped, 1);
+        assert!(
+            errors.iter().any(|e| e.contains("Failed to read files")),
+            "got: {errors:?}"
+        );
     }
 }
