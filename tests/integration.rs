@@ -121,6 +121,7 @@ Package with zero files
         depth: None,
         breadth: 5,
         min_percent: 0.0,
+        with_deps: false,
     };
 
     (tmp, config)
@@ -554,4 +555,81 @@ fn test_cli_empty_search_exits_1() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(out.stdout.is_empty());
+}
+
+/// Build a chroot with a small dependency graph:
+///   app  (explicit)   -> lib
+///   lib  (dependency) -> core
+///   core (dependency)               [also required by `other`]
+///   other (explicit)  -> core
+fn create_deps_chroot() -> (TempDir, Config) {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path();
+    let root = path.join("root");
+    fs::create_dir_all(root.join("usr/bin")).unwrap();
+
+    let db = path.join("db");
+
+    let write = |name: &str, reason: u64, depends: &[&str]| {
+        // One file per package so its size is non-zero.
+        let mut f = fs::File::create(root.join("usr/bin").join(name)).unwrap();
+        f.write_all(&vec![0xAB; 4096]).unwrap();
+
+        let dir = db.join("local").join(format!("{name}-1.0-1"));
+        fs::create_dir_all(&dir).unwrap();
+
+        let mut desc =
+            format!("%NAME%\n{name}\n%VERSION%\n1.0-1\n%SIZE%\n100\n%REASON%\n{reason}\n");
+        if !depends.is_empty() {
+            desc.push_str("%DEPENDS%\n");
+            for d in depends {
+                desc.push_str(d);
+                desc.push('\n');
+            }
+        }
+        fs::write(dir.join("desc"), desc).unwrap();
+        fs::write(dir.join("files"), format!("usr/bin/{name}\n")).unwrap();
+    };
+
+    write("app", 0, &["lib"]);
+    write("lib", 1, &["core"]);
+    write("core", 1, &[]);
+    write("other", 0, &["core"]);
+
+    let config = Config {
+        root,
+        dbpath: db,
+        targets: vec!["app".to_string()],
+        search: None,
+        sort: SortField::Real,
+        limit: None,
+        btrfs: false,
+        verbose: false,
+        format: None,
+        humansize: None,
+        delim: "\n".to_string(),
+        no_color: false,
+        apparent_size: false,
+        total: false,
+        files: false,
+        depth: None,
+        breadth: 5,
+        min_percent: 0.0,
+        with_deps: true,
+    };
+
+    (tmp, config)
+}
+
+#[test]
+fn test_scan_with_deps_frees_only_exclusive_dependencies() {
+    let (_tmp, config) = create_deps_chroot();
+
+    let report = scan::scan_packages(&config).unwrap();
+
+    let mut names: Vec<&str> = report.packages.iter().map(|p| p.name.as_str()).collect();
+    names.sort_unstable();
+    // `core` is kept (still required by `other`); `other` is not in the tree.
+    assert_eq!(names, vec!["app", "lib"]);
+    assert!(report.total_real > 0);
 }

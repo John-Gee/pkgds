@@ -1,5 +1,6 @@
 pub mod btrfs;
 pub mod config;
+pub mod deps;
 pub mod error;
 pub mod format;
 pub mod human_size;

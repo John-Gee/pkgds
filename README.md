@@ -68,6 +68,9 @@ pkgds -H Mi "%n\t%m" | sort -k2 -rn | head -5
 
 # Scan a chroot
 pkgds --root /mnt/arch --dbpath /mnt/arch/var/lib/pacman -H auto
+
+# A package plus the dependencies removing it would free
+pkgds --with-deps -H auto git
 ```
 
 ### Options
@@ -88,6 +91,7 @@ pkgds --root /mnt/arch --dbpath /mnt/arch/var/lib/pacman -H auto
 | `--apparent-size` | — | Show apparent file size instead of disk blocks |
 | `--total` | — | Show a TOTAL row; when `-n` truncates the list, also a SHOWN subtotal |
 | `--files` | — | Show file count column |
+| `--with-deps` | off | Also include the dependencies that removing the target(s) would free |
 | `--tree` | off | Expand each shown package into a file/dir tree (default depth 1) |
 | `--depth <N>` | 1 (with `--tree`) | Tree depth in levels; implies `--tree` |
 | `--breadth <K>` | 5 | Show at most K children per tree directory (0 = no limit) |
@@ -104,6 +108,12 @@ are ignored in the tree view, and a format string takes precedence over
 `--tree`. With `--btrfs` the tree is measured in on-disk bytes, so a package
 with no on-disk data is left out and reported on stderr rather than shown in
 a second unit.
+
+`--with-deps` expands the named packages (or the `-s` matches) to what
+`pacman -Rs` would remove: the packages themselves plus every dependency that
+was installed as a dependency and that nothing else needs. Shared dependencies
+such as glibc are therefore not counted, and the TOTAL row is the disk you would
+actually free.
 
 ### Format Tokens
 

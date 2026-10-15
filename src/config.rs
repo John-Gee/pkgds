@@ -97,6 +97,10 @@ pub struct RawArgs {
     /// Prune entries below this percentage of their parent (requires --tree; default 0.1)
     #[arg(long)]
     pub min_percent: Option<f64>,
+
+    /// Also include the dependencies that removing the target(s) would free
+    #[arg(long)]
+    pub with_deps: bool,
 }
 
 /// Final CLI configuration — built from RawArgs + validation.
@@ -122,6 +126,8 @@ pub struct Config {
     pub breadth: usize,
     /// Prune entries below this % of their parent (0.0 = no pruning).
     pub min_percent: f64,
+    /// Expand the selection to the dependencies `pacman -Rs` would remove.
+    pub with_deps: bool,
 }
 
 /// Rebase an absolute path from the target system onto `root`, e.g.
@@ -206,6 +212,17 @@ impl RawArgs {
         } else {
             None
         };
+
+        // 2b. --- Dependency expansion ---
+        // --with-deps expands a selection to the packages `pacman -Rs` would
+        // remove, so it needs something selected. Checked before any path
+        // validation so the flag interaction is reported regardless of the
+        // filesystem state.
+        if self.with_deps && targets.is_empty() && search.is_none() {
+            return Err(PkgdsError::Config(
+                "--with-deps requires package names or --search".to_string(),
+            ));
+        }
 
         // 3. --- Sort field ---
         let sort = Self::parse_sort(&self.sort).map_err(PkgdsError::Config)?;
@@ -315,6 +332,7 @@ impl RawArgs {
             depth,
             breadth: self.breadth,
             min_percent,
+            with_deps: self.with_deps,
         })
     }
 }
@@ -572,6 +590,13 @@ mod tests {
         let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "--min-percent", "5"]);
         let msg = raw.into_config().err().unwrap().to_string();
         assert!(msg.contains("requires --tree"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_with_deps_requires_selection() {
+        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "--with-deps"]);
+        let msg = raw.into_config().err().unwrap().to_string();
+        assert!(msg.contains("requires package names"), "got: {msg}");
     }
 
     #[test]

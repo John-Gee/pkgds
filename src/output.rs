@@ -549,6 +549,7 @@ mod tests {
             depth: None,
             breadth: 5,
             min_percent: 0.0,
+            with_deps: false,
         }
     }
 

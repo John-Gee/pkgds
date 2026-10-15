@@ -7,6 +7,11 @@ pub struct DescFields {
     pub name: String,
     pub version: String,
     pub size: u64,
+    pub depends: Vec<String>,
+    pub provides: Vec<String>,
+    /// pacman `%REASON%`: 0 = explicitly installed, 1 = installed as a
+    /// dependency. `None` when the field is absent (older databases).
+    pub reason: Option<u64>,
 }
 
 /// Search/filter configuration — by target name(s) and/or a regex search pattern.
@@ -23,6 +28,13 @@ pub struct PackageEntry {
     pub version: String,
     pub metadata_size: u64,
     pub files: Vec<PathBuf>,
+    /// Raw `%DEPENDS%` specs (e.g. `glibc>=2.34`, `sh`, `libalpm.so=15-64`).
+    pub depends: Vec<String>,
+    /// Raw `%PROVIDES%` specs (e.g. `sh`, `cron`).
+    pub provides: Vec<String>,
+    /// Whether the package was installed explicitly (`%REASON%` 0). Packages
+    /// installed as dependencies are eligible for `--with-deps` removal.
+    pub explicit: bool,
 }
 
 /// Minimal pacman configuration read from `pacman.conf`.
@@ -98,11 +110,38 @@ pub fn parse_desc(text: &str) -> crate::error::Result<DescFields> {
         })
         .unwrap_or(0);
 
+    // Extract DEPENDS / PROVIDES — multi-line lists of raw dependency specs.
+    let depends = list_field(&values, "DEPENDS");
+    let provides = list_field(&values, "PROVIDES");
+
+    // Extract REASON — 0 = explicit, 1 = dependency; absent on older databases.
+    let reason = values
+        .get("REASON")
+        .and_then(|lines| last_non_empty(lines))
+        .and_then(|s| s.trim().parse().ok());
+
     Ok(DescFields {
         name: name.unwrap(),
         version: version.unwrap(),
         size,
+        depends,
+        provides,
+        reason,
     })
+}
+
+/// Collect a multi-line list field (like `%DEPENDS%`), trimming blank lines.
+fn list_field(values: &std::collections::HashMap<String, Vec<String>>, key: &str) -> Vec<String> {
+    values
+        .get(key)
+        .map(|lines| {
+            lines
+                .iter()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Return the last non-empty (trimmed) line from a Vec<String>, or None if all empty.
@@ -222,7 +261,7 @@ fn trim_comment(s: &str) -> &str {
 }
 
 /// Check whether a package should be included per the filter.
-fn matches_filter(name: &str, filter: &Filter) -> bool {
+pub fn matches_filter(name: &str, filter: &Filter) -> bool {
     let targets_match = if filter.targets.is_empty() {
         true
     } else {
@@ -319,6 +358,9 @@ pub fn load_local_db(
             version: desc_fields.version,
             metadata_size: desc_fields.size,
             files,
+            depends: desc_fields.depends,
+            provides: desc_fields.provides,
+            explicit: desc_fields.reason != Some(1),
         });
     }
 
@@ -396,6 +438,16 @@ mod tests {
         let text = "%NAME%\ntest\n%VERSION%\n1.0-1\n";
         let df = parse_desc(text).unwrap();
         assert_eq!(df.size, 0);
+    }
+
+    #[test]
+    fn test_parse_desc_depends_provides_reason() {
+        let text = "%NAME%\nfoo\n%VERSION%\n1.0-1\n%REASON%\n1\n\
+                    %DEPENDS%\nglibc>=2.34\nsh\n%PROVIDES%\nfoo-bin\n";
+        let df = parse_desc(text).unwrap();
+        assert_eq!(df.depends, vec!["glibc>=2.34", "sh"]);
+        assert_eq!(df.provides, vec!["foo-bin"]);
+        assert_eq!(df.reason, Some(1));
     }
 
     #[test]

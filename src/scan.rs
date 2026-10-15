@@ -280,8 +280,29 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
         search: config.search.clone(),
     };
 
-    // Load and parse pacman local DB (parallel over parsed pkg lists)
-    let (entries, skipped, load_errors) = load_local_db(dbpath, &filter)?;
+    // Load and parse pacman local DB. With --with-deps the whole database is
+    // needed to resolve dependencies, so load unfiltered and expand the
+    // selection to the packages `pacman -Rs` would remove.
+    let (entries, skipped, load_errors) = if config.with_deps {
+        let (all, skipped, load_errors) = load_local_db(
+            dbpath,
+            &Filter {
+                targets: Vec::new(),
+                search: None,
+            },
+        )?;
+        let selected: Vec<usize> = all
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| crate::pacman::matches_filter(&e.name, &filter))
+            .map(|(i, _)| i)
+            .collect();
+        let keep = crate::deps::removable_with_deps(&all, &selected);
+        let entries: Vec<_> = keep.into_iter().map(|i| all[i].clone()).collect();
+        (entries, skipped, load_errors)
+    } else {
+        load_local_db(dbpath, &filter)?
+    };
 
     // Explicit targets that are not installed at all are a user error worth
     // reporting, not a silently empty result. Checked against the whole
@@ -555,6 +576,7 @@ mod tests {
             depth: Some(1),
             breadth: 5,
             min_percent: 0.0,
+            with_deps: false,
         }
     }
 
@@ -695,6 +717,9 @@ mod tests {
             version: "1.0-1".to_string(),
             metadata_size: 0,
             files: vec![PathBuf::from("nul\0byte")],
+            depends: Vec::new(),
+            provides: Vec::new(),
+            explicit: false,
         };
         let s = stat_package(&entry, Path::new("/"), false, false);
         assert_eq!(s.permission_errors, 0, "not a permission problem");
@@ -716,6 +741,9 @@ mod tests {
             version: "1.0-1".to_string(),
             metadata_size: 0,
             files: vec![],
+            depends: Vec::new(),
+            provides: Vec::new(),
+            explicit: false,
         };
         let s = stat_package(&entry, Path::new("/"), false, false);
         let (apparent, real, count, warns) = (s.apparent, s.real, s.count, s.warns);
@@ -737,6 +765,9 @@ mod tests {
             version: "1.0-1".to_string(),
             metadata_size: 100,
             files: vec![tmpfile],
+            depends: Vec::new(),
+            provides: Vec::new(),
+            explicit: false,
         };
         let s = stat_package(&entry, dir.path(), false, false);
         let (apparent, real, count, warns) = (s.apparent, s.real, s.count, s.warns);
@@ -754,6 +785,9 @@ mod tests {
             version: "1.0-1".to_string(),
             metadata_size: 50,
             files: vec![PathBuf::from("/tmp/pkgds_nonexistent_file_12345.txt")],
+            depends: Vec::new(),
+            provides: Vec::new(),
+            explicit: false,
         };
         let s = stat_package(&entry, Path::new("/"), false, false);
         let (apparent, real, count, warns) = (s.apparent, s.real, s.count, s.warns);
@@ -1217,6 +1251,9 @@ mod tests {
             version: "1.0-1".to_string(),
             metadata_size: 42,
             files: vec![marker],
+            depends: Vec::new(),
+            provides: Vec::new(),
+            explicit: false,
         };
         let s = stat_package(&entry, dir.path(), false, false);
         let (apparent, real, count, _warns) = (s.apparent, s.real, s.count, s.warns);

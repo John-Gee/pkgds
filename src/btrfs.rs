@@ -508,6 +508,7 @@ mod tests {
             depth: None,
             breadth: 5,
             min_percent: 0.0,
+            with_deps: false,
         }
     }
 
@@ -546,6 +547,9 @@ mod tests {
             version: "1.0-1".to_string(),
             metadata_size: 0,
             files: vec![a.clone(), b.clone(), link.clone()],
+            depends: Vec::new(),
+            provides: Vec::new(),
+            explicit: false,
         };
         let config = test_config(dir);
         let (sizes, total) = package_file_disk_sizes(&entry, &config, Some(&map));
