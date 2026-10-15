@@ -633,3 +633,52 @@ fn test_scan_with_deps_frees_only_exclusive_dependencies() {
     assert_eq!(names, vec!["app", "lib"]);
     assert!(report.total_real > 0);
 }
+
+#[test]
+fn test_cli_broken_pipe_is_not_a_panic() {
+    use std::process::{Command, Stdio};
+
+    let (_tmp, config) = create_test_chroot();
+    // A pipe with no reader: the child's first write to stdout fails with
+    // EPIPE. `println!` would panic (exit 101); we must exit cleanly.
+    let (read_end, write_end) = nix::unistd::pipe().unwrap();
+    drop(read_end);
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pkgds"))
+        .args([
+            "--root",
+            config.root.to_str().unwrap(),
+            "--dbpath",
+            config.dbpath.to_str().unwrap(),
+        ])
+        .stdout(Stdio::from(write_end))
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn pkgds");
+
+    let status = child.wait().unwrap();
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "a closed stdout pipe must not panic"
+    );
+}
+
+#[test]
+fn test_cli_nothing_matched_exits_1() {
+    let (_tmp, config) = create_test_chroot();
+    // A malformed package: targeting it yields no rows (nothing matched), so
+    // the result is empty even though a diagnostic was produced.
+    let bad = config.dbpath.join("local").join("badpkg-1.0-1");
+    fs::create_dir_all(&bad).unwrap();
+    fs::write(bad.join("desc"), "%NAME%\n%VERSION%\n%SIZE%\n10\n").unwrap();
+
+    let out = run_cli(&config, &["badpkg"]);
+
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}

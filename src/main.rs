@@ -1,4 +1,6 @@
-use pkgds::config::{self, RawArgs};
+use std::io::Write;
+
+use pkgds::config::RawArgs;
 use pkgds::output;
 use pkgds::scan;
 
@@ -26,12 +28,6 @@ fn main() {
     };
 
     let use_color = output::stderr_color_enabled(&cfg);
-
-    // Reject ratio sort if --btrfs is not set
-    if cfg.sort == config::SortField::Ratio && !cfg.btrfs {
-        eprint_error("--sort ratio requires --btrfs", use_color);
-        std::process::exit(1);
-    }
 
     let report = match scan::scan_packages(&cfg) {
         Ok(r) => r,
@@ -81,21 +77,28 @@ fn main() {
         } else {
             output::render_table(&report, &cfg)
         };
-        println!("{}", result);
+        // A broken pipe (`pkgds | head`) is normal; anything else is a real
+        // write error. Using `writeln!` rather than `println!` avoids the
+        // panic that would otherwise turn a closed pipe into exit 101.
+        if let Err(e) = writeln!(std::io::stdout(), "{}", result) {
+            if e.kind() != std::io::ErrorKind::BrokenPipe {
+                eprintln!("error writing to stdout: {}", e);
+                std::process::exit(1);
+            }
+        }
     }
 
-    // Exit codes: 2 when a package or file could not be fully scanned, or some
-    // (but not all) requested targets were unknown; 1 when nothing matched at
-    // all (unknown targets, an empty search, or an empty database).
-    if report.skipped_packages + report.permission_errors + report.read_errors > 0
-        || !report.errors.is_empty()
-    {
-        std::process::exit(2);
-    }
-    if !report.missing_targets.is_empty() && !report.packages.is_empty() {
-        std::process::exit(2);
-    }
+    // Exit codes: 1 when nothing matched at all (unknown targets, an empty
+    // search, an empty database); 2 when the result is partial — a file or
+    // package could not be read, btrfs data was unavailable, or some requested
+    // targets were unknown.
     if report.packages.is_empty() {
         std::process::exit(1);
+    }
+    if report.skipped_packages + report.permission_errors + report.read_errors > 0
+        || !report.errors.is_empty()
+        || !report.missing_targets.is_empty()
+    {
+        std::process::exit(2);
     }
 }

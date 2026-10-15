@@ -180,8 +180,8 @@ impl RawArgs {
     /// Convert RawArgs to Config with validation.
     pub fn into_config(self) -> Result<Config> {
         // 1. --- Format string detection ---
-        // clap puts all positional args in `positional`. The first element containing '%'
-        // is the format string; remaining elements are package targets.
+        // clap puts all positional args in `positional`. If the *first* one
+        // contains '%' it is the format string; the rest are package targets.
         let format_str = self.positional.first().and_then(|s| {
             if Self::is_format_string(s) {
                 Some(s.as_str())
@@ -226,6 +226,15 @@ impl RawArgs {
 
         // 3. --- Sort field ---
         let sort = Self::parse_sort(&self.sort).map_err(PkgdsError::Config)?;
+
+        // 3b. --- Sort/flag interaction ---
+        // --sort ratio needs on-disk data; validated before any filesystem
+        // probing so the flag interaction is reported rather than a path error.
+        if sort == SortField::Ratio && !self.btrfs {
+            return Err(PkgdsError::Config(
+                "--sort ratio requires --btrfs".to_string(),
+            ));
+        }
 
         // 4. --- Root existence check ---
         if !self.root.exists() {
