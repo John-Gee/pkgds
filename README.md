@@ -94,7 +94,7 @@ pkgds --with-deps -H auto git
 | `--with-deps` | off | Also include the dependencies that removing the target(s) would free |
 | `--tree` | off | Expand each shown package into a file/dir tree (default depth 1) |
 | `--depth <N>` | 1 (with `--tree`) | Tree depth in levels; implies `--tree` |
-| `--breadth <K>` | 5 | Show at most K children per tree directory (0 = no limit) |
+| `--breadth <K>` | 5 | Show at most K children per tree directory (0 = no limit; requires `--tree`) |
 | `--min-percent <P>` | 0.1 | Hide tree entries below P% of their parent (requires `--tree`) |
 | `-V, --version` | — | Print version |
 | `-h, --help` | — | Print help |

@@ -90,9 +90,9 @@ pub struct RawArgs {
     #[arg(long)]
     pub depth: Option<usize>,
 
-    /// Show at most K children per directory (0 = no limit)
-    #[arg(long, default_value_t = 5)]
-    pub breadth: usize,
+    /// Show at most K children per directory (0 = no limit; requires --tree)
+    #[arg(long)]
+    pub breadth: Option<usize>,
 
     /// Prune entries below this percentage of their parent (requires --tree; default 0.1)
     #[arg(long)]
@@ -321,6 +321,10 @@ impl RawArgs {
             None if depth.is_some() => 0.1,
             None => 0.0,
         };
+        if self.breadth.is_some() && depth.is_none() {
+            return Err(PkgdsError::Config("--breadth requires --tree".to_string()));
+        }
+        let breadth = self.breadth.unwrap_or(5);
 
         Ok(Config {
             root: self.root,
@@ -339,7 +343,7 @@ impl RawArgs {
             total: self.total,
             files: self.files,
             depth,
-            breadth: self.breadth,
+            breadth,
             min_percent,
             with_deps: self.with_deps,
         })
@@ -606,6 +610,13 @@ mod tests {
         let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "--with-deps"]);
         let msg = raw.into_config().err().unwrap().to_string();
         assert!(msg.contains("requires package names"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_breadth_requires_tree() {
+        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "--breadth", "3"]);
+        let msg = raw.into_config().err().unwrap().to_string();
+        assert!(msg.contains("requires --tree"), "got: {msg}");
     }
 
     #[test]
