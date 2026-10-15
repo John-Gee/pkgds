@@ -109,11 +109,11 @@ are ignored in the tree view, and a format string takes precedence over
 with no on-disk data is left out and reported on stderr rather than shown in
 a second unit.
 
-`--with-deps` expands the named packages (or the `-s` matches) to what
-`pacman -Rs` would remove: the packages themselves plus every dependency that
-was installed as a dependency and that nothing else needs. Shared dependencies
-such as glibc are therefore not counted, and the TOTAL row is the disk you would
-actually free.
+`--with-deps` expands the named packages (or the `-s` matches) to what removing
+them would free: the packages themselves plus every dependency that was
+installed as a dependency and that nothing else needs. Shared dependencies such
+as glibc are therefore not counted, and the TOTAL row is the sum of those
+packages' usage.
 
 ### Format Tokens
 

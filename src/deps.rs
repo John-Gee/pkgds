@@ -1,9 +1,12 @@
 //! `--with-deps`: which dependencies removing the target package(s) would free.
 //!
-//! This mirrors `pacman -Rs`: the targets plus every dependency that is not
-//! explicitly installed and is no longer required by any remaining package.
-//! Shared dependencies (glibc and friends) are therefore *not* counted, and
-//! neither are dependencies other installed packages still need.
+//! Models the disk removing the target(s) would free: the targets plus every
+//! dependency that is not explicitly installed and is no longer required by any
+//! remaining package. This matches `pacman -Rs` when the removal is permitted;
+//! pacman refuses when something outside the set still needs the target, and we
+//! report the footprint anyway (the estimation is the useful number). Shared
+//! dependencies (glibc and friends) are therefore *not* counted, and neither
+//! are dependencies other installed packages still need.
 
 use std::collections::{HashMap, HashSet};
 
@@ -31,12 +34,14 @@ fn resolve(
 }
 
 /// Given every installed package and the selected target indices, return the
-/// indices that `pacman -Rs` would remove: the targets plus each dependency
-/// that is not explicitly installed and whose every requirer is also removed.
+/// indices that removing the targets would free: the targets plus each
+/// dependency that is not explicitly installed and whose every requirer is also
+/// removed.
 ///
 /// Version constraints are ignored — the system is installed, so pacman has
-/// already satisfied them. When several packages provide a dependency the first
-/// is used (a rare case, and a deliberate simplification).
+/// already satisfied them. When several packages provide a dependency the
+/// alphabetically-first provider is used, so the result does not depend on
+/// directory order (a deliberate simplification).
 pub fn removable_with_deps(entries: &[PackageEntry], selected: &[usize]) -> Vec<usize> {
     let mut by_name: HashMap<&str, usize> = HashMap::with_capacity(entries.len());
     for (i, e) in entries.iter().enumerate() {
@@ -45,7 +50,14 @@ pub fn removable_with_deps(entries: &[PackageEntry], selected: &[usize]) -> Vec<
     let mut by_provides: HashMap<String, usize> = HashMap::new();
     for (i, e) in entries.iter().enumerate() {
         for p in &e.provides {
-            by_provides.entry(bare_dep_name(p).to_string()).or_insert(i);
+            let key = bare_dep_name(p).to_string();
+            match by_provides.get(&key) {
+                // Keep the alphabetically-first provider, whatever the order.
+                Some(&cur) if entries[cur].name <= e.name => {}
+                _ => {
+                    by_provides.insert(key, i);
+                }
+            }
         }
     }
 
@@ -169,6 +181,49 @@ mod tests {
         ];
         let out = removable_with_deps(&entries, &[0]);
         assert_eq!(names(&entries, &out), vec!["app", "bash"]);
+    }
+
+    #[test]
+    fn test_provider_choice_is_deterministic() {
+        // Two providers for `sh`; the alphabetically-first must be chosen
+        // regardless of the order they appear in.
+        let a = vec![
+            pkg("app", true, &["sh"], &[]),
+            pkg("zsh", false, &[], &["sh"]),
+            pkg("bash", false, &[], &["sh"]),
+        ];
+        let b = vec![
+            pkg("app", true, &["sh"], &[]),
+            pkg("bash", false, &[], &["sh"]),
+            pkg("zsh", false, &[], &["sh"]),
+        ];
+        assert_eq!(
+            names(&a, &removable_with_deps(&a, &[0])),
+            vec!["app", "bash"]
+        );
+        assert_eq!(
+            names(&b, &removable_with_deps(&b, &[0])),
+            vec!["app", "bash"]
+        );
+    }
+
+    #[test]
+    fn test_overlapping_requirers_and_multiple_providers() {
+        // app1 and app2 both need lib; lib needs `sh` (provided by bash and
+        // dash) and core; core is also needed by `other`, so it is kept.
+        let entries = vec![
+            pkg("app1", true, &["lib"], &[]),
+            pkg("app2", true, &["lib"], &[]),
+            pkg("lib", false, &["sh", "core"], &[]),
+            pkg("bash", false, &[], &["sh"]),
+            pkg("dash", false, &[], &["sh"]),
+            pkg("core", false, &[], &[]),
+            pkg("other", true, &["core"], &[]),
+        ];
+        // Removing both apps frees lib (both requirers gone) and bash (the
+        // alphabetically-first `sh` provider), but not core (other needs it).
+        let out = removable_with_deps(&entries, &[0, 1]);
+        assert_eq!(names(&entries, &out), vec!["app1", "app2", "lib", "bash"]);
     }
 
     #[test]
