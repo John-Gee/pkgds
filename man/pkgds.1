@@ -1,0 +1,78 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH pkgds 1  "pkgds 0.1.0" 
+.SH NAME
+pkgds \- Real disk usage per package for Arch Linux
+.SH SYNOPSIS
+\fBpkgds\fR [\fB\-H \fR] [\fB\-s \fR] [\fB\-\-sort\fR] [\fB\-n\fR|\fB\-\-limit\fR] [\fB\-\-btrfs\fR] [\fB\-\-root\fR] [\fB\-\-dbpath\fR] [\fB\-d \fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-\-no\-color\fR] [\fB\-\-apparent\-size\fR] [\fB\-\-total\fR] [\fB\-\-files\fR] [\fB\-\-tree\fR] [\fB\-\-depth\fR] [\fB\-\-breadth\fR] [\fB\-\-min\-percent\fR] [\fB\-\-with\-deps\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] [\fIPOSITIONAL\fR] 
+.SH DESCRIPTION
+Real disk usage per package for Arch Linux
+.SH OPTIONS
+.TP
+\fB\-H\fR \fI<HUMANSIZE>\fR
+Human\-size unit (B, K, Ki, M, Mi, G, Gi, T, Ti, auto, auto\-si)
+.TP
+\fB\-s\fR \fI<SEARCH>\fR
+Search packages by regex on name
+.TP
+\fB\-\-sort\fR \fI<SORT>\fR [default: real]
+Sort by field: name (ascending), real/apparent/files (descending), ratio (ascending)
+.TP
+\fB\-n\fR, \fB\-\-limit\fR \fI<LIMIT>\fR
+Show only top N packages (0 = unlimited)
+.TP
+\fB\-\-btrfs\fR
+Enable btrfs on\-disk size tokens (%z, %r)
+.TP
+\fB\-\-root\fR \fI<ROOT>\fR [default: /]
+Set filesystem root prefix
+.TP
+\fB\-\-dbpath\fR \fI<DBPATH>\fR
+Override pacman local DB path (absolute)
+.TP
+\fB\-d\fR \fI<DELIM>\fR [default: 
+]
+Delimiter between packages in format mode
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Show warnings for missing files, permission errors
+.TP
+\fB\-\-no\-color\fR
+Disable color output
+.TP
+\fB\-\-apparent\-size\fR
+Show apparent file size instead of disk blocks (du \-\-apparent\-size)
+.TP
+\fB\-\-total\fR
+Show total row at the bottom of table output
+.TP
+\fB\-\-files\fR
+Show file count column
+.TP
+\fB\-\-tree\fR
+Show a per\-package file/dir tree (default depth 1)
+.TP
+\fB\-\-depth\fR \fI<DEPTH>\fR
+Tree depth in levels (implies \-\-tree; default 1)
+.TP
+\fB\-\-breadth\fR \fI<BREADTH>\fR
+Show at most K children per directory (0 = no limit; requires \-\-tree)
+.TP
+\fB\-\-min\-percent\fR \fI<MIN_PERCENT>\fR
+Prune entries below this percentage of their parent (requires \-\-tree; default 0.1)
+.TP
+\fB\-\-with\-deps\fR
+Also include the dependencies that removing the target(s) would free
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help (see a summary with \*(Aq\-h\*(Aq)
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version
+.TP
+[\fIPOSITIONAL\fR]
+Format string (printf\-style) or package names
+
+Flags may follow package names (`pkgds bash \-\-btrfs`). A format string that starts with `\-` therefore needs the `\-\-` separator.
+.SH VERSION
+v0.1.0

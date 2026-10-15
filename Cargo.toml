@@ -23,6 +23,8 @@ owo-colors = "4"
 [dev-dependencies]
 tempfile = "3"
 nix = "0.31"
+clap_complete = "4"
+clap_mangen = "0.2"
 
 [profile.release]
 lto = "fat"
