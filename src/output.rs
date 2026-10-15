@@ -38,6 +38,27 @@ fn strip_ansi(s: &str) -> String {
     result
 }
 
+/// Escape control characters in a name so a crafted filename cannot forge
+/// extra rows or move the cursor in the terminal. Printable Unicode is kept.
+fn sanitize_name(s: &str) -> String {
+    if !s.chars().any(char::is_control) {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len() + 4);
+    for c in s.chars() {
+        if c.is_control() {
+            if (c as u32) < 0x80 {
+                out.push_str(&format!("\\x{:02x}", c as u32));
+            } else {
+                out.push_str(&format!("\\u{{{:x}}}", c as u32));
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// Cell styling applied when color is enabled.
 #[derive(Clone, Copy)]
 enum Style {
@@ -271,7 +292,7 @@ pub fn render_table(report: &ScanReport, cfg: &Config) -> String {
 
     let cells_for = |row: &Row| -> Vec<(String, Style)> {
         let mut cells = vec![
-            (row.name.clone(), Style::Plain),
+            (sanitize_name(&row.name), Style::Plain),
             (format_field_size(row.size, cfg.humansize), Style::Cyan),
         ];
         if show_pct {
@@ -354,18 +375,22 @@ fn add_tree_nodes(
         }
     };
 
-    // Prune tiny entries, then keep only the biggest `breadth` (nodes are
-    // already sorted by size descending).
-    let visible: Vec<&TreeNode> = nodes
-        .iter()
-        .filter(|n| !(min_percent > 0.0 && pct_of(n.size) < min_percent))
-        .collect();
-    let limit = if breadth == 0 {
-        visible.len()
-    } else {
-        breadth.min(visible.len())
-    };
-    let (shown, hidden) = visible.split_at(limit);
+    // Keep the biggest `breadth` non-pruned children (nodes are sorted by size
+    // descending). Everything else — pruned by --min-percent or capped by
+    // --breadth — is accounted for in one summary row, so a parent's children
+    // still add up.
+    let mut shown: Vec<&TreeNode> = Vec::new();
+    let mut omitted_count = 0usize;
+    let mut omitted_sum = 0u64;
+    for node in nodes {
+        let pruned = min_percent > 0.0 && pct_of(node.size) < min_percent;
+        if !pruned && (breadth == 0 || shown.len() < breadth) {
+            shown.push(node);
+        } else {
+            omitted_count += 1;
+            omitted_sum += node.size;
+        }
+    }
 
     for node in shown {
         out.push(TreeLine {
@@ -387,13 +412,12 @@ fn add_tree_nodes(
         }
     }
 
-    if !hidden.is_empty() {
-        let sum: u64 = hidden.iter().map(|n| n.size).sum();
+    if omitted_count > 0 {
         out.push(TreeLine {
             level,
-            name: format!("… {} more", hidden.len()),
-            size: sum,
-            pct: pct_of(sum),
+            name: format!("… {} more", omitted_count),
+            size: omitted_sum,
+            pct: pct_of(omitted_sum),
         });
     }
 }
@@ -438,40 +462,42 @@ pub fn render_tree(report: &ScanReport, cfg: &Config) -> String {
         return String::new();
     }
 
+    // Sanitize names, then normalize every column width so the size and
+    // percentage columns line up across rows.
+    let name_strs: Vec<String> = lines
+        .iter()
+        .map(|l| format!("{}{}", "  ".repeat(l.level), sanitize_name(&l.name)))
+        .collect();
     let size_strs: Vec<String> = lines
         .iter()
         .map(|l| format_field_size(l.size, cfg.humansize))
         .collect();
     let pct_strs: Vec<String> = lines.iter().map(|l| pct_string(l.pct)).collect();
 
-    let size_w = size_strs
-        .iter()
-        .map(|s| UnicodeWidthStr::width(s.as_str()))
-        .max()
-        .unwrap_or(0);
-    let pct_w = pct_strs
-        .iter()
-        .map(|s| UnicodeWidthStr::width(s.as_str()))
-        .max()
-        .unwrap_or(0);
+    let width = |s: &str| UnicodeWidthStr::width(s);
+    let name_w = name_strs.iter().map(|s| width(s)).max().unwrap_or(0);
+    let size_w = size_strs.iter().map(|s| width(s)).max().unwrap_or(0);
+    let pct_w = pct_strs.iter().map(|s| width(s)).max().unwrap_or(0);
 
     let mut out = Vec::with_capacity(lines.len());
     for (i, line) in lines.iter().enumerate() {
-        let name_cell = format!("{}{}", "  ".repeat(line.level), line.name);
-        let size_cell = format!("{:>w$}", size_strs[i], w = size_w);
-        let pct_cell = format!("{:>w$}", pct_strs[i], w = pct_w);
-
         let name_cell = if has_color && line.level == 0 {
-            name_cell.bold().to_string()
+            name_strs[i].bold().to_string()
         } else {
-            name_cell
+            name_strs[i].clone()
         };
+        let name_pad = " ".repeat(name_w.saturating_sub(width(&name_strs[i])));
+        let size_cell = format!("{:>w$}", size_strs[i], w = size_w);
         let size_cell = if has_color {
             size_cell.cyan().to_string()
         } else {
             size_cell
         };
-        out.push(format!("{}  {}  {}", name_cell, size_cell, pct_cell));
+        let pct_cell = format!("{:>w$}", pct_strs[i], w = pct_w);
+        out.push(format!(
+            "{}{}  {}  {}",
+            name_cell, name_pad, size_cell, pct_cell
+        ));
     }
     out.join("\n")
 }
@@ -771,6 +797,86 @@ mod tests {
         let out = render_tree(&tree_report(), &cfg);
         assert!(out.contains("lib"));
         assert!(!out.contains("etc"));
+        // The pruned node is still accounted for, so the parent's children add up.
+        let summary = out
+            .lines()
+            .find(|l| l.contains("… 1 more"))
+            .unwrap_or_else(|| panic!("no summary line in:\n{out}"));
+        let cells: Vec<&str> = summary.split_whitespace().collect();
+        assert_eq!(cells[cells.len() - 2], "40", "size cell wrong: {summary}");
+        assert_eq!(cells[cells.len() - 1], "40.0%", "pct cell wrong: {summary}");
+    }
+
+    #[test]
+    fn test_render_tree_columns_are_aligned() {
+        use crate::tree::{PackageTree, TreeNode};
+        let report = ScanReport {
+            total_real: 100,
+            trees: vec![PackageTree {
+                name: "pkg".to_string(),
+                size: 100,
+                nodes: vec![
+                    TreeNode {
+                        name: "a".to_string(),
+                        size: 10,
+                        is_dir: false,
+                        children: vec![],
+                    },
+                    TreeNode {
+                        name: "bbbbbb".to_string(),
+                        size: 20,
+                        is_dir: false,
+                        children: vec![],
+                    },
+                ],
+            }],
+            ..Default::default()
+        };
+        let mut cfg = make_config(false);
+        cfg.depth = Some(1);
+        let out = render_tree(&report, &cfg);
+        // Every row is padded to the same width, so the columns line up.
+        let widths: std::collections::HashSet<usize> =
+            out.lines().map(|l| l.chars().count()).collect();
+        assert_eq!(widths.len(), 1, "rows are ragged:\n{out}");
+    }
+
+    #[test]
+    fn test_render_tree_escapes_control_characters() {
+        use crate::tree::{PackageTree, TreeNode};
+        let report = ScanReport {
+            total_real: 100,
+            trees: vec![PackageTree {
+                name: "pkg".to_string(),
+                size: 100,
+                nodes: vec![TreeNode {
+                    name: "evil\nrow\u{1b}[31m".to_string(),
+                    size: 100,
+                    is_dir: false,
+                    children: vec![],
+                }],
+            }],
+            ..Default::default()
+        };
+        let mut cfg = make_config(false);
+        cfg.depth = Some(1);
+        let out = render_tree(&report, &cfg);
+        assert!(out.contains("\\x0a"), "newline must be escaped:\n{out}");
+        assert!(out.contains("\\x1b"), "ESC must be escaped:\n{out}");
+        assert!(
+            !out.contains('\u{1b}'),
+            "raw ESC must not reach the terminal"
+        );
+    }
+
+    #[test]
+    fn test_render_table_escapes_control_characters() {
+        let mut report = report_of(sample_packages());
+        report.packages[0].name = "evil\u{1b}name".to_string();
+        let cfg = make_config(false);
+        let out = render_table(&report, &cfg);
+        assert!(out.contains("\\x1b"), "ESC must be escaped:\n{out}");
+        assert!(!out.contains('\u{1b}'));
     }
 
     #[test]
