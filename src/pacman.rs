@@ -159,17 +159,17 @@ pub fn parse_files(text: &str) -> Vec<PathBuf> {
     let mut seen_files = false;
 
     for line in text.lines() {
-        if let Some(stripped) = line.strip_prefix('%') {
-            if stripped.ends_with('%') {
-                let header = stripped.strip_suffix('%').unwrap_or("");
-                if header == "FILES" {
-                    in_files = true;
-                    seen_files = true;
-                } else if in_files {
-                    break;
-                }
-                continue;
+        if let Some(stripped) = line.strip_prefix('%')
+            && stripped.ends_with('%')
+        {
+            let header = stripped.strip_suffix('%').unwrap_or("");
+            if header == "FILES" {
+                in_files = true;
+                seen_files = true;
+            } else if in_files {
+                break;
             }
+            continue;
         }
 
         if !seen_files {

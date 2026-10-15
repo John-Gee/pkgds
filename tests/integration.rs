@@ -1,5 +1,5 @@
 use pkgds::config::{Config, RawArgs, SortField};
-use pkgds::pacman::{load_local_db, Filter};
+use pkgds::pacman::{Filter, load_local_db};
 use pkgds::scan;
 use std::fs;
 use std::io::Write;

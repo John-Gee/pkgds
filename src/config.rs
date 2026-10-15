@@ -304,12 +304,12 @@ impl RawArgs {
         };
         // Validate the value before the tree requirement so a bad value is
         // reported as such regardless of whether --tree was given.
-        if let Some(p) = self.min_percent {
-            if !(0.0..=100.0).contains(&p) {
-                return Err(PkgdsError::Config(
-                    "--min-percent must be between 0 and 100".to_string(),
-                ));
-            }
+        if let Some(p) = self.min_percent
+            && !(0.0..=100.0).contains(&p)
+        {
+            return Err(PkgdsError::Config(
+                "--min-percent must be between 0 and 100".to_string(),
+            ));
         }
         if self.min_percent.is_some() && depth.is_none() {
             return Err(PkgdsError::Config(

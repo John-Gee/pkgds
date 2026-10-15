@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::human_size::{format_size, UnitSpec};
+use crate::human_size::{UnitSpec, format_size};
 
 use crate::scan::{PackageResult, ScanReport, TreeMetric};
 use crate::tree::TreeNode;

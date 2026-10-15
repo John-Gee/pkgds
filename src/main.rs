@@ -87,11 +87,11 @@ fn main() {
         // A broken pipe (`pkgds | head`) is normal; anything else is a real
         // write error. Using `writeln!` rather than `println!` avoids the
         // panic that would otherwise turn a closed pipe into exit 101.
-        if let Err(e) = writeln!(std::io::stdout(), "{}", result) {
-            if e.kind() != std::io::ErrorKind::BrokenPipe {
-                eprintln!("error writing to stdout: {}", e);
-                std::process::exit(1);
-            }
+        if let Err(e) = writeln!(std::io::stdout(), "{}", result)
+            && e.kind() != std::io::ErrorKind::BrokenPipe
+        {
+            eprintln!("error writing to stdout: {}", e);
+            std::process::exit(1);
         }
     }
 

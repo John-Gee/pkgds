@@ -69,10 +69,10 @@ pub fn removable_with_deps(entries: &[PackageEntry], selected: &[usize]) -> Vec<
             continue;
         }
         for dep in &entries[x].depends {
-            if let Some(y) = resolve(dep, &by_name, &by_provides) {
-                if !closure.contains(&y) {
-                    stack.push(y);
-                }
+            if let Some(y) = resolve(dep, &by_name, &by_provides)
+                && !closure.contains(&y)
+            {
+                stack.push(y);
             }
         }
     }

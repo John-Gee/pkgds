@@ -44,7 +44,7 @@ pub struct FormatString(pub Vec<FormatSegment>);
 impl FormatString {
     /// Render the format string for a given package result into an output line.
     pub fn render(&self, pkg: &crate::scan::PackageResult, cfg: &crate::config::Config) -> String {
-        use crate::human_size::{format_size, UnitSpec};
+        use crate::human_size::{UnitSpec, format_size};
 
         // Format mode defaults to raw bytes when -H is not given.
         let unit = cfg.humansize.unwrap_or(UnitSpec::Raw);
@@ -175,14 +175,16 @@ mod tests {
     #[test]
     fn test_format_escape_sequences() {
         let fmt = FormatString::parse(r"hello\tworld\nend").unwrap();
-        assert!(fmt
-            .0
-            .iter()
-            .any(|s| matches!(s, FormatSegment::Literal(l) if l.contains('\t'))));
-        assert!(fmt
-            .0
-            .iter()
-            .any(|s| matches!(s, FormatSegment::Literal(l) if l.contains('\n'))));
+        assert!(
+            fmt.0
+                .iter()
+                .any(|s| matches!(s, FormatSegment::Literal(l) if l.contains('\t')))
+        );
+        assert!(
+            fmt.0
+                .iter()
+                .any(|s| matches!(s, FormatSegment::Literal(l) if l.contains('\n')))
+        );
     }
 
     #[test]
@@ -198,10 +200,11 @@ mod tests {
     #[test]
     fn test_format_unknown_token() {
         let fmt = FormatString::parse("%x value").unwrap();
-        assert!(fmt
-            .0
-            .iter()
-            .any(|s| matches!(s, FormatSegment::Literal(l) if l.contains('%'))));
+        assert!(
+            fmt.0
+                .iter()
+                .any(|s| matches!(s, FormatSegment::Literal(l) if l.contains('%')))
+        );
     }
 
     #[test]
@@ -231,28 +234,31 @@ mod tests {
     #[test]
     fn test_format_backslash_escape() {
         let fmt = FormatString::parse(r"path\to\file").unwrap();
-        assert!(fmt
-            .0
-            .iter()
-            .any(|s| matches!(s, FormatSegment::Literal(l) if l.contains('\t'))));
+        assert!(
+            fmt.0
+                .iter()
+                .any(|s| matches!(s, FormatSegment::Literal(l) if l.contains('\t')))
+        );
     }
 
     #[test]
     fn test_format_lone_trailing_percent() {
         let fmt = FormatString::parse("value%").unwrap();
-        assert!(fmt
-            .0
-            .iter()
-            .any(|s| matches!(s, FormatSegment::Literal(l) if l.contains('%'))));
+        assert!(
+            fmt.0
+                .iter()
+                .any(|s| matches!(s, FormatSegment::Literal(l) if l.contains('%')))
+        );
     }
 
     #[test]
     fn test_format_lone_trailing_backslash() {
         let fmt = FormatString::parse("end\\").unwrap();
-        assert!(fmt
-            .0
-            .iter()
-            .any(|s| matches!(s, FormatSegment::Literal(l) if l.ends_with('\\'))));
+        assert!(
+            fmt.0
+                .iter()
+                .any(|s| matches!(s, FormatSegment::Literal(l) if l.ends_with('\\')))
+        );
     }
 
     #[test]

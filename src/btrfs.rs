@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use btrfs_disk::items::{FileExtentBody, FileExtentItem};
 use btrfs_uapi::raw::BTRFS_EXTENT_DATA_KEY;
-use btrfs_uapi::tree_search::{tree_search_v2, SearchFilter};
+use btrfs_uapi::tree_search::{SearchFilter, tree_search_v2};
 use rayon::prelude::*;
 
 use crate::config::Config;
@@ -123,22 +123,22 @@ fn build_inode_map(root: &Path) -> Result<HashMap<u64, InodeExtents>, String> {
         |hdr, data: &[u8]| -> std::result::Result<(), nix::errno::Errno> {
             // A compound-key search can return other item types; keep only
             // extent-data items.
-            if hdr.item_type == BTRFS_EXTENT_DATA_KEY {
-                if let Some(extent) = FileExtentItem::parse(data) {
-                    let entry = map.entry(hdr.objectid).or_default();
-                    match &extent.body {
-                        FileExtentBody::Regular {
-                            disk_bytenr,
-                            disk_num_bytes,
-                            ..
-                        } => {
-                            if *disk_bytenr != 0 {
-                                entry.extents.push((*disk_bytenr, *disk_num_bytes));
-                            }
+            if hdr.item_type == BTRFS_EXTENT_DATA_KEY
+                && let Some(extent) = FileExtentItem::parse(data)
+            {
+                let entry = map.entry(hdr.objectid).or_default();
+                match &extent.body {
+                    FileExtentBody::Regular {
+                        disk_bytenr,
+                        disk_num_bytes,
+                        ..
+                    } => {
+                        if *disk_bytenr != 0 {
+                            entry.extents.push((*disk_bytenr, *disk_num_bytes));
                         }
-                        FileExtentBody::Inline { inline_size } => {
-                            entry.inline += *inline_size as u64;
-                        }
+                    }
+                    FileExtentBody::Inline { inline_size } => {
+                        entry.inline += *inline_size as u64;
                     }
                 }
             }
@@ -181,14 +181,14 @@ fn sum_package_files(
             continue;
         }
         let ino = meta.ino();
-        if seen_inodes.insert((meta.dev(), ino)) {
-            if let Some(extents) = map.get(&ino) {
-                found = true;
-                total += extents.inline;
-                for &(disk_bytenr, disk_num_bytes) in &extents.extents {
-                    if seen_bytenr.insert(disk_bytenr) {
-                        total += disk_num_bytes;
-                    }
+        if seen_inodes.insert((meta.dev(), ino))
+            && let Some(extents) = map.get(&ino)
+        {
+            found = true;
+            total += extents.inline;
+            for &(disk_bytenr, disk_num_bytes) in &extents.extents {
+                if seen_bytenr.insert(disk_bytenr) {
+                    total += disk_num_bytes;
                 }
             }
         }

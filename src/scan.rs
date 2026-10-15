@@ -1,8 +1,8 @@
 use crate::btrfs;
 use crate::config::{Config, SortField};
 use crate::error::Result;
-use crate::pacman::{load_local_db, Filter};
-use crate::tree::{build_package_tree, PackageTree};
+use crate::pacman::{Filter, load_local_db};
+use crate::tree::{PackageTree, build_package_tree};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::io::{IsTerminal, Write};
