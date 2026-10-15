@@ -8,16 +8,16 @@ post-install changes. `expac -Q '%m'` reports only pacman's *declared* size from
 package metadata, which is often wrong.
 
 ```
-$ pkgds -H auto rocm-llvm miopen-hip rocblas
-PACKAGE          REAL      %
-rocm-llvm     6.8 GiB  78.1%
-miopen-hip    1.4 GiB  16.6%
-rocblas     475.1 MiB   5.3%
+$ pkgds -H Gi rocm-llvm miopen-hip rocblas
+PACKAGE        REAL      %
+rocm-llvm   6.9 GiB  78.1%
+miopen-hip  1.5 GiB  16.6%
+rocblas     0.5 GiB   5.3%
 
-$ expac -Q '%n %m' rocm-llvm miopen-hip rocblas   # declared size, in bytes
-rocm-llvm 7364364057
-miopen-hip 2447557128
-rocblas 1388086875
+$ expac -H G '%n %m' rocm-llvm miopen-hip rocblas   # declared size
+rocm-llvm 6.86 GiB
+miopen-hip 2.28 GiB
+rocblas 1.29 GiB
 ```
 
 `rocblas` uses barely a third of the space its metadata claims, because the ROCm
