@@ -682,3 +682,33 @@ fn test_cli_nothing_matched_exits_1() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+#[test]
+fn test_scan_btrfs_unavailable_is_an_error_not_a_warning() {
+    let (_tmp, mut config) = create_test_chroot();
+    config.btrfs = true;
+
+    let report = scan::scan_packages(&config).unwrap();
+
+    // Either btrfs data was unavailable (non-btrfs root, or no permission) and
+    // that is an error (exit 2), or it worked and there is nothing to report.
+    // It must never be a silent warning.
+    if report.total_disk == 0 {
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|e| e.to_lowercase().contains("btrfs")),
+            "btrfs failure must be an error, got errors: {:?}",
+            report.errors
+        );
+        assert!(
+            !report
+                .warnings
+                .iter()
+                .any(|w| w.to_lowercase().contains("btrfs")),
+            "btrfs failure must not be a warning, got: {:?}",
+            report.warnings
+        );
+    }
+}

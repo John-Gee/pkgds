@@ -346,10 +346,14 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
     let mut btrfs_errors: Vec<String> = Vec::new();
     let (btrfs_disk, btrfs_map): (Vec<Option<u64>>, Option<btrfs::InodeMap>) = if config.btrfs {
         match btrfs::detect_btrfs(&config.root) {
-            btrfs::BtrfsStatus::Yes => btrfs::compressed_sizes(&entries, config),
+            btrfs::BtrfsStatus::Yes => {
+                let (sizes, map, errs) = btrfs::compressed_sizes(&entries, config);
+                btrfs_errors.extend(errs);
+                (sizes, map)
+            }
             btrfs::BtrfsStatus::No => {
-                all_warns.push(format!(
-                    "{} is not on a btrfs filesystem; ignoring --btrfs",
+                btrfs_errors.push(format!(
+                    "{} is not on a btrfs filesystem; btrfs data is unavailable",
                     config.root.display()
                 ));
                 (vec![None; entries.len()], None)
@@ -476,7 +480,11 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
                     // (DISK) bytes; otherwise from the real/apparent sizes
                     // already stat'd.
                     TreeMetric::Disk => {
-                        btrfs::package_file_disk_sizes(entry, config, btrfs_map.as_ref()).0
+                        // Per-file ioctl diagnostics for these same files were
+                        // already collected by compressed_sizes.
+                        let (sizes, _total, _errs) =
+                            btrfs::package_file_disk_sizes(entry, config, btrfs_map.as_ref());
+                        sizes
                     }
                     _ => scanned[idx].sizes.clone(),
                 };

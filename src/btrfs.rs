@@ -63,18 +63,21 @@ pub fn detect_btrfs(root: &Path) -> BtrfsStatus {
 pub(crate) fn compressed_sizes(
     entries: &[PackageEntry],
     config: &Config,
-) -> (Vec<Option<u64>>, Option<InodeMap>) {
+) -> (Vec<Option<u64>>, Option<InodeMap>, Vec<String>) {
     if config.targets.is_empty() {
         match build_inode_map(&config.root) {
-            Some(map) => (sweep_sizes(entries, config, &map), Some(map)),
-            None => (vec![None; entries.len()], None),
+            Ok(map) => (sweep_sizes(entries, config, &map), Some(map), Vec::new()),
+            Err(e) => (vec![None; entries.len()], None, vec![e]),
         }
     } else {
-        let sizes = entries
-            .iter()
-            .map(|entry| package_disk_usage(entry, config))
-            .collect();
-        (sizes, None)
+        let mut sizes = Vec::with_capacity(entries.len());
+        let mut errors = Vec::new();
+        for entry in entries {
+            let (size, mut errs) = package_disk_usage(entry, config);
+            sizes.push(size);
+            errors.append(&mut errs);
+        }
+        (sizes, None, errors)
     }
 }
 
@@ -108,12 +111,12 @@ fn is_filesystem_marker(path: &Path) -> bool {
 
 /// One pass over the subvolume's `EXTENT_DATA` items, producing
 /// `inode -> extents` (holes recorded as an empty entry, inline counted).
-/// `None` if the sweep fails.
-fn build_inode_map(root: &Path) -> Option<HashMap<u64, InodeExtents>> {
-    let file = File::open(root).ok()?;
+/// `Err` if the sweep cannot be run or fails partway.
+fn build_inode_map(root: &Path) -> Result<HashMap<u64, InodeExtents>, String> {
+    let file = File::open(root).map_err(|e| format!("open {}: {}", root.display(), e))?;
     let filter = SearchFilter::for_type(0, BTRFS_EXTENT_DATA_KEY);
     let mut map: HashMap<u64, InodeExtents> = HashMap::new();
-    let res = tree_search_v2(
+    tree_search_v2(
         file.as_fd(),
         filter,
         None,
@@ -141,8 +144,9 @@ fn build_inode_map(root: &Path) -> Option<HashMap<u64, InodeExtents>> {
             }
             Ok(())
         },
-    );
-    res.ok().map(|_| map)
+    )
+    .map_err(|e| format!("extent sweep: {e}"))?;
+    Ok(map)
 }
 
 /// Sum a package's on-disk bytes from a prebuilt inode map. Hardlinked paths
@@ -155,7 +159,7 @@ fn sum_package_files(
     root_dev: Option<u64>,
     map: &HashMap<u64, InodeExtents>,
 ) -> Option<u64> {
-    let mut seen_inodes: HashSet<u64> = HashSet::new();
+    let mut seen_inodes: HashSet<(u64, u64)> = HashSet::new();
     let mut seen_bytenr: HashSet<u64> = HashSet::new();
     let mut total = 0u64;
     let mut found = false;
@@ -177,7 +181,7 @@ fn sum_package_files(
             continue;
         }
         let ino = meta.ino();
-        if seen_inodes.insert(ino) {
+        if seen_inodes.insert((meta.dev(), ino)) {
             if let Some(extents) = map.get(&ino) {
                 found = true;
                 total += extents.inline;
@@ -212,7 +216,9 @@ fn sweep_sizes(
 /// Raw extent records for one file, before cross-file dedup.
 #[derive(Default)]
 struct FileExtents {
-    /// Inode of the file (0 when it could not be read), used to dedup hardlinks.
+    /// Device and inode of the file (0 when it could not be read); together
+    /// they identify the file for hardlink dedup.
+    dev: u64,
     ino: u64,
     /// `(disk_bytenr, disk_num_bytes)` for each regular extent; holes appear as
     /// `disk_bytenr == 0`.
@@ -221,6 +227,9 @@ struct FileExtents {
     inline_bytes: u64,
     /// Whether any extent item was seen for this file.
     found: bool,
+    /// Set when the extent ioctl failed, so the caller can report it rather
+    /// than silently treat the file as empty.
+    error: Option<String>,
 }
 
 /// Read one file's extent records via the btrfs tree-search ioctl.
@@ -249,10 +258,11 @@ fn file_extents(file_path: &Path, root: &Path) -> FileExtents {
     }
 
     let ino = meta.ino();
+    out.dev = meta.dev();
     out.ino = ino;
     let filter = SearchFilter::for_objectid_range(0, BTRFS_EXTENT_DATA_KEY, ino, ino);
 
-    let _ = tree_search_v2(
+    if let Err(e) = tree_search_v2(
         file.as_fd(),
         filter,
         None,
@@ -272,7 +282,16 @@ fn file_extents(file_path: &Path, root: &Path) -> FileExtents {
             }
             Ok(())
         },
-    );
+    ) {
+        // ENOTTY/ENOSYS/ENOPROTOOPT mean the file is not on btrfs (e.g. another
+        // mount such as /boot on vfat): that is "no data", not a failure.
+        if !matches!(
+            e,
+            nix::errno::Errno::ENOTTY | nix::errno::Errno::ENOPROTOOPT | nix::errno::Errno::ENOSYS
+        ) {
+            out.error = Some(e.to_string());
+        }
+    }
 
     out
 }
@@ -302,16 +321,29 @@ fn total_from_files(files: &[FileExtents]) -> Option<u64> {
 ///
 /// Hardlinked inodes are deduplicated before summing so this agrees with the
 /// per-file tree totals from [`package_file_disk_sizes`].
-fn package_disk_usage(entry: &PackageEntry, config: &Config) -> Option<u64> {
-    let mut seen_inodes: HashSet<u64> = HashSet::new();
+fn package_disk_usage(entry: &PackageEntry, config: &Config) -> (Option<u64>, Vec<String>) {
+    let root_dev = std::fs::metadata(&config.root).ok().map(|m| m.dev());
+    let mut seen_inodes: HashSet<(u64, u64)> = HashSet::new();
+    let mut errors = Vec::new();
     let files: Vec<FileExtents> = entry
         .files
         .iter()
         .filter(|file_path| !is_filesystem_marker(file_path))
-        .map(|file_path| file_extents(file_path, &config.root))
-        .filter(|ext| ext.ino != 0 && seen_inodes.insert(ext.ino))
+        .map(|file_path| {
+            let ext = file_extents(file_path, &config.root);
+            if let Some(err) = &ext.error {
+                errors.push(format!("{}: {}", file_path.display(), err));
+            }
+            ext
+        })
+        .filter(|ext| {
+            // Only files on the root's subvolume count (as in the sweep path).
+            ext.ino != 0
+                && root_dev.is_none_or(|dev| ext.dev == dev)
+                && seen_inodes.insert((ext.dev, ext.ino))
+        })
         .collect();
-    total_from_files(&files)
+    (total_from_files(&files), errors)
 }
 
 /// Per-file btrfs on-disk bytes for one package, aligned with `entry.files`.
@@ -325,13 +357,14 @@ pub(crate) fn package_file_disk_sizes(
     entry: &PackageEntry,
     config: &Config,
     map: Option<&InodeMap>,
-) -> (Vec<u64>, Option<u64>) {
-    let root_dev = map.and_then(|_| std::fs::metadata(&config.root).ok().map(|m| m.dev()));
+) -> (Vec<u64>, Option<u64>, Vec<String>) {
+    let root_dev = std::fs::metadata(&config.root).ok().map(|m| m.dev());
     let mut sizes = vec![0u64; entry.files.len()];
-    let mut seen_inodes: HashSet<u64> = HashSet::new();
+    let mut seen_inodes: HashSet<(u64, u64)> = HashSet::new();
     let mut seen_bytenr: HashSet<u64> = HashSet::new();
     let mut total = 0u64;
     let mut found = false;
+    let mut errors = Vec::new();
 
     for (i, file_path) in entry.files.iter().enumerate() {
         if is_filesystem_marker(file_path) {
@@ -351,8 +384,9 @@ pub(crate) fn package_file_disk_sizes(
                 continue;
             }
         }
+        let dev = meta.dev();
         let ino = meta.ino();
-        if !seen_inodes.insert(ino) {
+        if !seen_inodes.insert((dev, ino)) {
             continue;
         }
 
@@ -372,6 +406,9 @@ pub(crate) fn package_file_disk_sizes(
             }
             None => {
                 let ext = file_extents(file_path, &config.root);
+                if let Some(err) = &ext.error {
+                    errors.push(format!("{}: {}", file_path.display(), err));
+                }
                 if ext.found {
                     this_found = true;
                     bytes += ext.inline_bytes;
@@ -391,7 +428,7 @@ pub(crate) fn package_file_disk_sizes(
         }
     }
 
-    (sizes, found.then_some(total))
+    (sizes, found.then_some(total), errors)
 }
 
 #[cfg(test)]
@@ -400,10 +437,12 @@ mod tests {
 
     fn file(regular: &[(u64, u64)], inline_bytes: u64, found: bool) -> FileExtents {
         FileExtents {
+            dev: 0,
             ino: 0,
             regular: regular.to_vec(),
             inline_bytes,
             found,
+            error: None,
         }
     }
 
@@ -552,7 +591,7 @@ mod tests {
             explicit: false,
         };
         let config = test_config(dir);
-        let (sizes, total) = package_file_disk_sizes(&entry, &config, Some(&map));
+        let (sizes, total, _errors) = package_file_disk_sizes(&entry, &config, Some(&map));
 
         // a: inline 7 + extent 500 (4096); b: inline 10 + extent 501 (8192)
         // (500 already seen); the hardlink shares a's inode -> 0.
@@ -576,5 +615,24 @@ mod tests {
 
         // A regular file is still read (ino is set even without btrfs extents).
         assert_ne!(file_extents(&target, dir).ino, 0);
+    }
+
+    #[test]
+    fn test_file_extents_not_on_btrfs_is_not_an_error() {
+        // A regular file on a non-btrfs filesystem (e.g. /boot on vfat): the
+        // ioctl fails with ENOTTY, which means "no data here", not a failure.
+        let tmp = tempfile::tempdir().unwrap();
+        let f = tmp.path().join("f");
+        std::fs::write(&f, b"data").unwrap();
+
+        let ext = file_extents(&f, tmp.path());
+        // On btrfs the ioctl succeeds; otherwise the file is skipped silently.
+        if !ext.found {
+            assert!(
+                ext.error.is_none(),
+                "a non-btrfs file must not be reported as an error: {:?}",
+                ext.error
+            );
+        }
     }
 }
