@@ -60,6 +60,7 @@ fn auto_pick_unit(bytes: u64, is_iec: bool) -> (u64, u32, &'static str) {
         return (0, 0, "B");
     }
 
+    let base: u64 = if is_iec { 1024 } else { 1000 };
     let tiers = if is_iec {
         &[
             (1_099_511_627_776u64, "TiB"),
@@ -76,9 +77,17 @@ fn auto_pick_unit(bytes: u64, is_iec: bool) -> (u64, u32, &'static str) {
         ]
     };
 
-    for &(divisor, suffix) in tiers {
+    for (idx, &(divisor, suffix)) in tiers.iter().enumerate() {
         if bytes >= divisor {
             let (int_part, frac) = round_half_up_scaled(bytes, divisor);
+            // Rounding can carry into the next tier (1023.95 KiB would print as
+            // "1024.0 KiB"); promote instead so the unit is always the largest
+            // that fits.
+            if int_part >= base && idx > 0 {
+                let (next_divisor, next_suffix) = tiers[idx - 1];
+                let (ip, fr) = round_half_up_scaled(bytes, next_divisor);
+                return (ip, fr, next_suffix);
+            }
             return (int_part, frac, suffix);
         }
     }
@@ -145,8 +154,12 @@ mod tests {
     }
 
     #[test]
-    fn test_half_up_rounding() {
-        assert_eq!(format_size(1_536, UnitSpec::Ki), "1.5 KiB");
+    fn test_auto_promotes_across_a_unit_boundary() {
+        // 1048575 bytes is 1023.999 KiB, which rounds to 1024.0 KiB; the unit
+        // must promote to MiB rather than print "1024.0 KiB".
+        assert_eq!(format_size(1_048_575, UnitSpec::Auto), "1.0 MiB");
+        // Same for SI: 999999 bytes rounds up to 1000.0 K -> 1.0 M.
+        assert_eq!(format_size(999_999, UnitSpec::AutoSi), "1.0 M");
     }
 
     #[test]
@@ -170,16 +183,14 @@ mod tests {
     }
 
     #[test]
-    fn test_auto_iec_1433600_bytes_rounds_to_mi_b_or_mib_variant() {
-        // 1433600 bytes ≈ 1.4 MiB (1433600/1048576 = 1.367)
-        let result = format_size(1_433_600, UnitSpec::Auto);
-        assert!(result.ends_with("MiB") || result.contains("Mi"));
+    fn test_auto_iec_1433600_bytes_is_1_4_mib() {
+        // 1433600 / 1048576 = 1.3672 -> 1.4 MiB.
+        assert_eq!(format_size(1_433_600, UnitSpec::Auto), "1.4 MiB");
     }
 
     #[test]
-    fn test_auto_gigabyte_range() {
-        let result = format_size(2_500_000_000, UnitSpec::AutoSi);
-        assert!(result.contains("G"));
+    fn test_auto_si_gigabytes() {
+        assert_eq!(format_size(2_500_000_000, UnitSpec::AutoSi), "2.5 G");
     }
 
     #[test]
