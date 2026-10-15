@@ -712,3 +712,72 @@ fn test_scan_btrfs_unavailable_is_an_error_not_a_warning() {
         );
     }
 }
+
+/// Ground truth for `--with-deps`: compare the removal set to what
+/// `pacman -Rs --print` reports. Needs a real Arch system, so it skips when
+/// pacman or the local database is absent.
+#[test]
+fn test_with_deps_matches_pacman_rs() {
+    use pkgds::deps::removable_with_deps;
+    use std::collections::HashSet;
+    use std::process::Command;
+
+    let dbpath = std::path::Path::new("/var/lib/pacman");
+    if !dbpath.join("local").is_dir() || Command::new("pacman").arg("--version").output().is_err() {
+        eprintln!("skipping test_with_deps_matches_pacman_rs: no pacman / local database");
+        return;
+    }
+
+    let (entries, _skipped, _errors) = load_local_db(
+        dbpath,
+        &Filter {
+            targets: vec![],
+            search: None,
+        },
+    )
+    .unwrap();
+
+    // Compare a bounded sample. pacman refuses a removal that would break
+    // another package, and those refusals have no comparable output, so bound
+    // the number of pacman invocations (attempts), not just the successes.
+    let mut compared = 0usize;
+    for (attempts, (i, entry)) in entries.iter().enumerate().enumerate() {
+        if attempts >= 40 || compared >= 20 {
+            break;
+        }
+        let out = Command::new("pacman")
+            .args(["-Rs", "--print", &entry.name])
+            .output()
+            .expect("run pacman");
+        if !out.status.success() {
+            continue;
+        }
+
+        // pacman prints `name-version-release`, one per line.
+        let expected: HashSet<String> = String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|line| {
+                let mut parts = line.trim().rsplitn(3, '-');
+                parts.next()?; // release
+                parts.next()?; // version
+                parts.next().map(str::to_string)
+            })
+            .collect();
+        if expected.is_empty() {
+            continue;
+        }
+
+        let got: HashSet<String> = removable_with_deps(&entries, &[i])
+            .into_iter()
+            .map(|j| entries[j].name.clone())
+            .collect();
+        assert_eq!(
+            got, expected,
+            "removal set for '{}' differs from `pacman -Rs --print`",
+            entry.name
+        );
+        compared += 1;
+    }
+
+    assert!(compared > 0, "no comparable packages found");
+}
