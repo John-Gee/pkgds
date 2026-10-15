@@ -44,10 +44,17 @@ fn main() {
     for target in &report.missing_targets {
         eprint_error(&format!("no such package: {}", target), use_color);
     }
+    let unreadable = report.permission_errors + report.read_errors;
     if cfg.verbose {
         for warn in &report.warnings {
             eprintln!("{}", warn);
         }
+    } else if unreadable > 0 {
+        // The exit code is 2, but without -v nothing has said why.
+        eprintln!(
+            "{} file(s) could not be read; re-run with -v for details",
+            unreadable
+        );
     }
 
     // Render output to stdout. Nothing matched means nothing to print — avoid

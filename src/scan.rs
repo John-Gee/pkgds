@@ -52,7 +52,9 @@ fn stat_file(path: &Path) -> StatResult {
             } else {
                 StatResult::Success {
                     apparent: meta.len(),
-                    real: meta.blocks() * 512,
+                    // `st_blocks` is never negative in practice; saturate so a
+                    // pathological value cannot overflow.
+                    real: meta.blocks().saturating_mul(512),
                     dev: meta.dev(),
                     ino: meta.ino(),
                 }
