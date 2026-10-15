@@ -620,6 +620,20 @@ mod tests {
     }
 
     #[test]
+    fn test_sort_ratio_error_precedes_path_checks() {
+        // The flag interaction must be reported, not a "root does not exist".
+        let raw = <RawArgs as clap::Parser>::parse_from([
+            "pkgds",
+            "--sort",
+            "ratio",
+            "--root",
+            "/nonexistent_path_xyz",
+        ]);
+        let msg = raw.into_config().err().unwrap().to_string();
+        assert!(msg.contains("requires --btrfs"), "got: {msg}");
+    }
+
+    #[test]
     fn test_version_flag_is_available() {
         for flag in ["--version", "-V"] {
             let err = <RawArgs as clap::Parser>::try_parse_from(["pkgds", flag]).unwrap_err();
