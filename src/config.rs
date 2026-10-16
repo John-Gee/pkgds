@@ -367,6 +367,17 @@ mod tests {
         "B", "K", "Ki", "M", "Mi", "G", "Gi", "T", "Ti", "auto", "auto-si",
     ];
 
+    /// Parse args with a temporary, existing `--root`/`--dbpath`, so
+    /// `into_config`'s path checks pass on any host. The tests must not assume
+    /// the host has a pacman database (e.g. `/var/lib/pacman`).
+    fn config_from(extra: &[&str]) -> Result<Config> {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().to_str().unwrap().to_string();
+        let mut argv = vec!["pkgds", "--root", &dir, "--dbpath", &dir];
+        argv.extend_from_slice(extra);
+        <RawArgs as clap::Parser>::parse_from(argv).into_config()
+    }
+
     #[test]
     fn test_parse_humansize_valid_values() {
         for val in VALID_HUMAN_SIZE_VALUES {
@@ -408,15 +419,13 @@ mod tests {
 
     #[test]
     fn test_format_mode_default_unit_is_raw() {
-        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "%m"]);
-        let config = raw.into_config().unwrap();
+        let config = config_from(&["%m"]).unwrap();
         assert!(config.humansize.is_none());
     }
 
     #[test]
     fn test_table_mode_default_unit_is_auto() {
-        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds"]);
-        let config = raw.into_config().unwrap();
+        let config = config_from(&[]).unwrap();
         assert!(matches!(config.humansize, Some(UnitSpec::Auto)));
     }
 
@@ -456,8 +465,7 @@ mod tests {
 
     #[test]
     fn test_into_config_sort_ratio_with_btrfs_ok() {
-        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "--sort", "ratio", "--btrfs"]);
-        let config = raw.into_config().unwrap();
+        let config = config_from(&["--sort", "ratio", "--btrfs"]).unwrap();
         assert_eq!(config.sort, SortField::Ratio);
         assert!(config.btrfs);
     }
@@ -481,18 +489,14 @@ mod tests {
     fn test_flags_after_package_names_are_still_flags() {
         // `pkgds bash --btrfs` must read --btrfs as the flag it is. With
         // trailing_var_arg it became a package name: "no such package: --btrfs".
-        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "bash", "--btrfs"]);
-        let config = raw.into_config().unwrap();
+        let config = config_from(&["bash", "--btrfs"]).unwrap();
         assert!(config.btrfs);
         assert_eq!(config.targets, vec!["bash".to_string()]);
     }
 
     #[test]
     fn test_flags_after_positionals_parse_in_every_order() {
-        let raw = <RawArgs as clap::Parser>::parse_from([
-            "pkgds", "bash", "grep", "--limit", "5", "-H", "Mi", "--files",
-        ]);
-        let config = raw.into_config().unwrap();
+        let config = config_from(&["bash", "grep", "--limit", "5", "-H", "Mi", "--files"]).unwrap();
         assert_eq!(config.targets, vec!["bash".to_string(), "grep".to_string()]);
         assert_eq!(config.limit, Some(5));
         assert!(config.files);
@@ -509,8 +513,7 @@ mod tests {
         // flag).
         let err = <RawArgs as clap::Parser>::try_parse_from(["pkgds", "-%m"]).unwrap_err();
         assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
-        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "--", "-%m"]);
-        let config = raw.into_config().unwrap();
+        let config = config_from(&["--", "-%m"]).unwrap();
         assert!(config.format.is_some());
         assert!(config.targets.is_empty());
     }
@@ -534,8 +537,7 @@ mod tests {
 
     #[test]
     fn test_targets_when_no_format_string() {
-        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "glibc", "firefox"]);
-        let config = raw.into_config().unwrap();
+        let config = config_from(&["glibc", "firefox"]).unwrap();
         assert_eq!(
             config.targets,
             vec!["glibc".to_string(), "firefox".to_string()]
@@ -545,38 +547,33 @@ mod tests {
 
     #[test]
     fn test_format_mode_sets_no_limit() {
-        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "%n\t%m"]); // format mode: unlimited by default
-        let config = raw.into_config().unwrap();
+        let config = config_from(&["%n\t%m"]).unwrap(); // format mode: unlimited by default
         assert!(config.format.is_some());
         assert!(config.limit.is_none()); // format mode has no limit by default
     }
 
     #[test]
     fn test_explicit_limit_in_format_mode() {
-        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "-n", "2", "%n"]);
-        let config = raw.into_config().unwrap();
+        let config = config_from(&["-n", "2", "%n"]).unwrap();
         assert_eq!(config.limit, Some(2));
     }
 
     #[test]
     fn test_limit_zero_is_unlimited() {
-        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "-n", "0"]);
-        let config = raw.into_config().unwrap();
+        let config = config_from(&["-n", "0"]).unwrap();
         assert_eq!(config.limit, None);
     }
 
     #[test]
     fn test_table_mode_default_limit() {
-        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds"]);
-        let config = raw.into_config().unwrap();
+        let config = config_from(&[]).unwrap();
         assert_eq!(config.limit, Some(20));
     }
 
     #[test]
     fn test_tree_defaults_to_depth_1_and_enables_pruning() {
         // --tree enables the view and does not swallow a positional target.
-        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "--tree", "glibc"]);
-        let config = raw.into_config().unwrap();
+        let config = config_from(&["--tree", "glibc"]).unwrap();
         assert_eq!(config.depth, Some(1));
         assert_eq!(config.breadth, 5);
         assert_eq!(config.min_percent, 0.1);
@@ -585,17 +582,14 @@ mod tests {
 
     #[test]
     fn test_depth_implies_tree_and_is_explicit() {
-        let raw =
-            <RawArgs as clap::Parser>::parse_from(["pkgds", "--depth", "4", "--min-percent", "2"]);
-        let config = raw.into_config().unwrap();
+        let config = config_from(&["--depth", "4", "--min-percent", "2"]).unwrap();
         assert_eq!(config.depth, Some(4));
         assert_eq!(config.min_percent, 2.0);
     }
 
     #[test]
     fn test_no_depth_means_no_pruning() {
-        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds"]);
-        let config = raw.into_config().unwrap();
+        let config = config_from(&[]).unwrap();
         assert_eq!(config.depth, None);
         assert_eq!(config.min_percent, 0.0);
     }
