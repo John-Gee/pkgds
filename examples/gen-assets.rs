@@ -9,20 +9,27 @@ use clap::CommandFactory;
 
 fn main() -> std::io::Result<()> {
     let cmd = pkgds::config::RawArgs::command();
+    let name = cmd.get_name().to_string();
 
     fs::create_dir_all("man")?;
     let mut man = Vec::new();
     clap_mangen::Man::new(cmd.clone()).render(&mut man)?;
-    fs::write("man/pkgds.1", man)?;
+    fs::write(format!("man/{name}.1"), man)?;
 
     fs::create_dir_all("completions")?;
     for (shell, path) in [
-        (clap_complete::Shell::Bash, "completions/pkgds.bash"),
-        (clap_complete::Shell::Zsh, "completions/_pkgds"),
-        (clap_complete::Shell::Fish, "completions/pkgds.fish"),
+        (
+            clap_complete::Shell::Bash,
+            format!("completions/{name}.bash"),
+        ),
+        (clap_complete::Shell::Zsh, format!("completions/_{name}")),
+        (
+            clap_complete::Shell::Fish,
+            format!("completions/{name}.fish"),
+        ),
     ] {
         let mut buf = Vec::new();
-        clap_complete::generate(shell, &mut cmd.clone(), "pkgds", &mut buf);
+        clap_complete::generate(shell, &mut cmd.clone(), &name, &mut buf);
         fs::write(path, buf)?;
     }
 
