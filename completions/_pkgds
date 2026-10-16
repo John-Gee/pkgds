@@ -17,7 +17,7 @@ _pkgds() {
     _arguments "${_arguments_options[@]}" : \
 '-H+[Human-size unit (B, K, Ki, M, Mi, G, Gi, T, Ti, auto, auto-si)]:HUMANSIZE:(B K Ki M Mi G Gi T Ti auto auto-si)' \
 '-s+[Search packages by regex on name]:SEARCH:_default' \
-'--sort=[Sort by field\: name (ascending), real/apparent/files (descending), ratio (ascending)]:SORT:(name real size apparent files ratio)' \
+'--sort=[Sort by field\: name (ascending), real (alias size)/apparent/files (descending), ratio (ascending)]:SORT:(name real size apparent files ratio)' \
 '-n+[Show only top N packages (0 = unlimited; default 20)]:LIMIT:_default' \
 '--limit=[Show only top N packages (0 = unlimited; default 20)]:LIMIT:_default' \
 '--root=[Set filesystem root prefix]:ROOT:_files' \

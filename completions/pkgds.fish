@@ -10,7 +10,7 @@ Ti\t''
 auto\t''
 auto-si\t''"
 complete -c pkgds -s s -d 'Search packages by regex on name' -r
-complete -c pkgds -l sort -d 'Sort by field: name (ascending), real/apparent/files (descending), ratio (ascending)' -r -f -a "name\t''
+complete -c pkgds -l sort -d 'Sort by field: name (ascending), real (alias size)/apparent/files (descending), ratio (ascending)' -r -f -a "name\t''
 real\t''
 size\t''
 apparent\t''
