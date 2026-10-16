@@ -11,15 +11,61 @@ Real disk usage per package for Arch Linux
 .TP
 \fB\-H\fR \fI<HUMANSIZE>\fR
 Human\-size unit (B, K, Ki, M, Mi, G, Gi, T, Ti, auto, auto\-si)
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+B
+.IP \(bu 2
+K
+.IP \(bu 2
+Ki
+.IP \(bu 2
+M
+.IP \(bu 2
+Mi
+.IP \(bu 2
+G
+.IP \(bu 2
+Gi
+.IP \(bu 2
+T
+.IP \(bu 2
+Ti
+.IP \(bu 2
+auto
+.IP \(bu 2
+auto\-si
+.RE
 .TP
 \fB\-s\fR \fI<SEARCH>\fR
 Search packages by regex on name
 .TP
 \fB\-\-sort\fR \fI<SORT>\fR [default: real]
 Sort by field: name (ascending), real/apparent/files (descending), ratio (ascending)
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+name
+.IP \(bu 2
+real
+.IP \(bu 2
+size
+.IP \(bu 2
+apparent
+.IP \(bu 2
+files
+.IP \(bu 2
+ratio
+.RE
 .TP
 \fB\-n\fR, \fB\-\-limit\fR \fI<LIMIT>\fR
-Show only top N packages (0 = unlimited)
+Show only top N packages (0 = unlimited; default 20)
 .TP
 \fB\-\-btrfs\fR
 Enable btrfs on\-disk size tokens (%z, %r)
@@ -30,9 +76,8 @@ Set filesystem root prefix
 \fB\-\-dbpath\fR \fI<DBPATH>\fR
 Override pacman local DB path (absolute)
 .TP
-\fB\-d\fR \fI<DELIM>\fR [default: 
-]
-Delimiter between packages in format mode
+\fB\-d\fR \fI<DELIM>\fR
+Delimiter between packages in format mode (default: newline)
 .TP
 \fB\-v\fR, \fB\-\-verbose\fR
 Show warnings for missing files, permission errors
@@ -56,7 +101,7 @@ Show a per\-package file/dir tree (default depth 1)
 Tree depth in levels (implies \-\-tree; default 1)
 .TP
 \fB\-\-breadth\fR \fI<BREADTH>\fR
-Show at most K children per directory (0 = no limit; requires \-\-tree)
+Show at most K children per directory (default 5; requires \-\-tree)
 .TP
 \fB\-\-min\-percent\fR \fI<MIN_PERCENT>\fR
 Prune entries below this percentage of their parent (requires \-\-tree; default 0.1)

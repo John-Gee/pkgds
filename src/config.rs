@@ -31,7 +31,12 @@ pub struct RawArgs {
     pub positional: Vec<String>,
 
     /// Human-size unit (B, K, Ki, M, Mi, G, Gi, T, Ti, auto, auto-si)
-    #[arg(short = 'H')]
+    #[arg(
+        short = 'H',
+        value_parser = clap::builder::PossibleValuesParser::new([
+            "B", "K", "Ki", "M", "Mi", "G", "Gi", "T", "Ti", "auto", "auto-si",
+        ])
+    )]
     pub humansize: Option<String>,
 
     /// Search packages by regex on name
@@ -39,10 +44,16 @@ pub struct RawArgs {
     pub search: Option<String>,
 
     /// Sort by field: name (ascending), real/apparent/files (descending), ratio (ascending)
-    #[arg(long, default_value = "real")]
+    #[arg(
+        long,
+        default_value = "real",
+        value_parser = clap::builder::PossibleValuesParser::new([
+            "name", "real", "size", "apparent", "files", "ratio",
+        ])
+    )]
     pub sort: String,
 
-    /// Show only top N packages (0 = unlimited)
+    /// Show only top N packages (0 = unlimited; default 20)
     #[arg(short = 'n', long)]
     pub limit: Option<usize>,
 
@@ -58,8 +69,8 @@ pub struct RawArgs {
     #[arg(long)]
     pub dbpath: Option<PathBuf>,
 
-    /// Delimiter between packages in format mode
-    #[arg(short = 'd', default_value = "\n")]
+    /// Delimiter between packages in format mode (default: newline)
+    #[arg(short = 'd', default_value = "\n", hide_default_value = true)]
     pub delim: String,
 
     /// Show warnings for missing files, permission errors
@@ -90,7 +101,7 @@ pub struct RawArgs {
     #[arg(long)]
     pub depth: Option<usize>,
 
-    /// Show at most K children per directory (0 = no limit; requires --tree)
+    /// Show at most K children per directory (default 5; requires --tree)
     #[arg(long)]
     pub breadth: Option<usize>,
 
@@ -638,6 +649,46 @@ mod tests {
         for flag in ["--version", "-V"] {
             let err = <RawArgs as clap::Parser>::try_parse_from(["pkgds", flag]).unwrap_err();
             assert_eq!(err.kind(), clap::error::ErrorKind::DisplayVersion);
+        }
+    }
+
+    #[test]
+    fn test_cli_value_sets_match_the_parsers() {
+        use clap::CommandFactory;
+
+        let cmd = RawArgs::command();
+        let possible = |id: &str| -> std::collections::BTreeSet<String> {
+            cmd.get_arguments()
+                .find(|a| a.get_id().as_str() == id)
+                .map(|a| {
+                    a.get_possible_values()
+                        .iter()
+                        .map(|v| v.get_name().to_string())
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+
+        // The clap value sets duplicate the parsers' accept sets; keep them in
+        // lockstep so a value added to one cannot silently miss the other.
+        let humansize = possible("humansize");
+        assert_eq!(
+            humansize,
+            VALID_HUMAN_SIZE_VALUES
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        );
+        for v in &humansize {
+            assert!(RawArgs::parse_humansize(v).is_ok(), "parser rejects {v}");
+        }
+
+        let sort = possible("sort");
+        for v in &sort {
+            assert!(RawArgs::parse_sort(v).is_ok(), "parser rejects {v}");
+        }
+        for v in ["name", "real", "size", "apparent", "files", "ratio"] {
+            assert!(sort.contains(v), "clap set is missing {v}");
         }
     }
 }

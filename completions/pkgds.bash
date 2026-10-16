@@ -30,7 +30,7 @@ _pkgds() {
             fi
             case "${prev}" in
                 -H)
-                    COMPREPLY=($(compgen -f "${cur}"))
+                    COMPREPLY=($(compgen -W "B K Ki M Mi G Gi T Ti auto auto-si" -- "${cur}"))
                     return 0
                     ;;
                 -s)
@@ -38,7 +38,7 @@ _pkgds() {
                     return 0
                     ;;
                 --sort)
-                    COMPREPLY=($(compgen -f "${cur}"))
+                    COMPREPLY=($(compgen -W "name real size apparent files ratio" -- "${cur}"))
                     return 0
                     ;;
                 --limit)

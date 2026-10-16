@@ -15,16 +15,16 @@ _pkgds() {
 
     local context curcontext="$curcontext" state line
     _arguments "${_arguments_options[@]}" : \
-'-H+[Human-size unit (B, K, Ki, M, Mi, G, Gi, T, Ti, auto, auto-si)]:HUMANSIZE:_default' \
+'-H+[Human-size unit (B, K, Ki, M, Mi, G, Gi, T, Ti, auto, auto-si)]:HUMANSIZE:(B K Ki M Mi G Gi T Ti auto auto-si)' \
 '-s+[Search packages by regex on name]:SEARCH:_default' \
-'--sort=[Sort by field\: name (ascending), real/apparent/files (descending), ratio (ascending)]:SORT:_default' \
-'-n+[Show only top N packages (0 = unlimited)]:LIMIT:_default' \
-'--limit=[Show only top N packages (0 = unlimited)]:LIMIT:_default' \
+'--sort=[Sort by field\: name (ascending), real/apparent/files (descending), ratio (ascending)]:SORT:(name real size apparent files ratio)' \
+'-n+[Show only top N packages (0 = unlimited; default 20)]:LIMIT:_default' \
+'--limit=[Show only top N packages (0 = unlimited; default 20)]:LIMIT:_default' \
 '--root=[Set filesystem root prefix]:ROOT:_files' \
 '--dbpath=[Override pacman local DB path (absolute)]:DBPATH:_files' \
-'-d+[Delimiter between packages in format mode]:DELIM:_default' \
+'-d+[Delimiter between packages in format mode (default\: newline)]:DELIM:_default' \
 '--depth=[Tree depth in levels (implies --tree; default 1)]:DEPTH:_default' \
-'--breadth=[Show at most K children per directory (0 = no limit; requires --tree)]:BREADTH:_default' \
+'--breadth=[Show at most K children per directory (default 5; requires --tree)]:BREADTH:_default' \
 '--min-percent=[Prune entries below this percentage of their parent (requires --tree; default 0.1)]:MIN_PERCENT:_default' \
 '--btrfs[Enable btrfs on-disk size tokens (%z, %r)]' \
 '-v[Show warnings for missing files, permission errors]' \
