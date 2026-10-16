@@ -238,13 +238,34 @@ impl RawArgs {
         // 3. --- Sort field ---
         let sort = Self::parse_sort(&self.sort).map_err(PkgdsError::Config)?;
 
-        // 3b. --- Sort/flag interaction ---
-        // --sort ratio needs on-disk data; validated before any filesystem
-        // probing so the flag interaction is reported rather than a path error.
+        // 3b. --- Flag interactions ---
+        // These are all flag combinations, so they are reported before any
+        // filesystem probing rather than as a path error.
         if sort == SortField::Ratio && !self.btrfs {
             return Err(PkgdsError::Config(
                 "--sort ratio requires --btrfs".to_string(),
             ));
+        }
+        // --tree enables the tree; --depth implies it.
+        let depth = if self.tree || self.depth.is_some() {
+            Some(self.depth.unwrap_or(1))
+        } else {
+            None
+        };
+        if let Some(p) = self.min_percent
+            && !(0.0..=100.0).contains(&p)
+        {
+            return Err(PkgdsError::Config(
+                "--min-percent must be between 0 and 100".to_string(),
+            ));
+        }
+        if self.min_percent.is_some() && depth.is_none() {
+            return Err(PkgdsError::Config(
+                "--min-percent requires --tree".to_string(),
+            ));
+        }
+        if self.breadth.is_some() && depth.is_none() {
+            return Err(PkgdsError::Config("--breadth requires --tree".to_string()));
         }
 
         // 4. --- Root existence check ---
@@ -305,36 +326,13 @@ impl RawArgs {
             None => Some(UnitSpec::Auto),
         };
 
-        // 8. --- Tree view ---
-        // --tree enables the tree (--depth implies it); --min-percent is a
-        // tree-only option (below P% of the parent) and defaults to 0.1 there.
-        let depth = if self.tree || self.depth.is_some() {
-            Some(self.depth.unwrap_or(1))
-        } else {
-            None
-        };
-        // Validate the value before the tree requirement so a bad value is
-        // reported as such regardless of whether --tree was given.
-        if let Some(p) = self.min_percent
-            && !(0.0..=100.0).contains(&p)
-        {
-            return Err(PkgdsError::Config(
-                "--min-percent must be between 0 and 100".to_string(),
-            ));
-        }
-        if self.min_percent.is_some() && depth.is_none() {
-            return Err(PkgdsError::Config(
-                "--min-percent requires --tree".to_string(),
-            ));
-        }
+        // 8. --- Tree view values ---
+        // --min-percent defaults to 0.1 with the tree; --breadth to 5.
         let min_percent = match self.min_percent {
             Some(p) => p,
             None if depth.is_some() => 0.1,
             None => 0.0,
         };
-        if self.breadth.is_some() && depth.is_none() {
-            return Err(PkgdsError::Config("--breadth requires --tree".to_string()));
-        }
         let breadth = self.breadth.unwrap_or(5);
 
         Ok(Config {
