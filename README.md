@@ -35,6 +35,9 @@ cd pkgds
 makepkg -si
 ```
 
+The package installs the `pkgds(1)` man page and bash, zsh and fish
+completions.
+
 ## Usage
 
 ```
@@ -143,8 +146,8 @@ longer owns are excluded.
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | Usage error (invalid args, missing paths), or nothing matched at all |
-| 2 | Partial result: some file could not be read, some package was malformed, btrfs data was unavailable, or some requested package names were unknown |
+| 1 | `pkgds` usage error (bad flag combination, missing paths), or nothing matched at all |
+| 2 | Argument parse error (unknown flag or value), or a partial result: some file could not be read, some package was malformed, btrfs data was unavailable, or some requested package names were unknown |
 
 A full scan exits 2 whenever any package owns a file this user cannot read —
 mode-600 files owned by root are enough — so treat 2 as "numbers are a lower
