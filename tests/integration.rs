@@ -713,10 +713,91 @@ fn test_scan_btrfs_unavailable_is_an_error_not_a_warning() {
     }
 }
 
-/// Ground truth for `--with-deps`: compare the removal set to what
-/// `pacman -Rs --print` reports. Needs a real Arch system, so it skips when
-/// pacman or the local database is absent.
+/// Hermetic ground truth for `--with-deps`: replay the fixture recorded from
+/// `pacman -Rs --print` on a real Arch system (see
+/// `examples/record-pacman-rs.rs`). Runs everywhere, including CI.
 #[test]
+fn test_with_deps_matches_recorded_pacman_rs() {
+    use pkgds::deps::removable_with_deps;
+    use pkgds::pacman::PackageEntry;
+    use std::collections::{HashMap, HashSet};
+
+    let mut entries: Vec<PackageEntry> = Vec::new();
+    let mut cases: Vec<(String, HashSet<String>)> = Vec::new();
+    let mut pending: Option<String> = None;
+
+    for line in include_str!("fixtures/pacman_rs.tsv").lines() {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut fields = line.split('\t');
+        match fields.next() {
+            Some("entry") => {
+                let name = fields.next().unwrap().to_string();
+                let explicit = fields.next().unwrap() == "1";
+                let depends = fields
+                    .next()
+                    .unwrap()
+                    .split_whitespace()
+                    .map(str::to_string)
+                    .collect();
+                let provides = fields
+                    .next()
+                    .unwrap()
+                    .split_whitespace()
+                    .map(str::to_string)
+                    .collect();
+                entries.push(PackageEntry {
+                    name,
+                    version: "1-1".to_string(),
+                    metadata_size: 0,
+                    files: Vec::new(),
+                    depends,
+                    provides,
+                    explicit,
+                });
+            }
+            Some("target") => pending = Some(fields.next().unwrap().to_string()),
+            Some("expect") => {
+                let target = pending.take().expect("expect line before target");
+                let expected = fields
+                    .next()
+                    .unwrap()
+                    .split_whitespace()
+                    .map(str::to_string)
+                    .collect();
+                cases.push((target, expected));
+            }
+            _ => {}
+        }
+    }
+
+    assert!(!cases.is_empty(), "fixture has no cases");
+    let index: HashMap<&str, usize> = entries
+        .iter()
+        .enumerate()
+        .map(|(i, e)| (e.name.as_str(), i))
+        .collect();
+    for (target, expected) in &cases {
+        let i = *index
+            .get(target.as_str())
+            .unwrap_or_else(|| panic!("target {target} is not in the fixture entries"));
+        let got: HashSet<String> = removable_with_deps(&entries, &[i])
+            .into_iter()
+            .map(|j| entries[j].name.clone())
+            .collect();
+        assert_eq!(
+            &got, expected,
+            "removal set for '{target}' differs from the recorded `pacman -Rs`"
+        );
+    }
+}
+
+/// Live ground truth for `--with-deps`: compare the removal set to what
+/// `pacman -Rs --print` reports right now. Needs a real Arch system, so it is
+/// ignored by default; run it with `cargo test -- --ignored`.
+#[test]
+#[ignore = "needs pacman and a populated local database"]
 fn test_with_deps_matches_pacman_rs() {
     use pkgds::deps::removable_with_deps;
     use std::collections::HashSet;
