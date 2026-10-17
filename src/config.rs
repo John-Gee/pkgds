@@ -597,28 +597,53 @@ mod tests {
 
     #[test]
     fn test_min_percent_out_of_range_is_error() {
-        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "--min-percent", "150"]);
+        // A nonexistent root makes the path check fail, so this pins the flag
+        // check running first (not only on a host that has a pacman database).
+        let raw = <RawArgs as clap::Parser>::parse_from([
+            "pkgds",
+            "--min-percent",
+            "150",
+            "--root",
+            "/nonexistent_path_xyz",
+        ]);
         let msg = raw.into_config().err().unwrap().to_string();
         assert!(msg.contains("between 0 and 100"), "got: {msg}");
     }
 
     #[test]
     fn test_min_percent_requires_tree() {
-        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "--min-percent", "5"]);
+        let raw = <RawArgs as clap::Parser>::parse_from([
+            "pkgds",
+            "--min-percent",
+            "5",
+            "--root",
+            "/nonexistent_path_xyz",
+        ]);
         let msg = raw.into_config().err().unwrap().to_string();
         assert!(msg.contains("requires --tree"), "got: {msg}");
     }
 
     #[test]
     fn test_with_deps_requires_selection() {
-        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "--with-deps"]);
+        let raw = <RawArgs as clap::Parser>::parse_from([
+            "pkgds",
+            "--with-deps",
+            "--root",
+            "/nonexistent_path_xyz",
+        ]);
         let msg = raw.into_config().err().unwrap().to_string();
         assert!(msg.contains("requires package names"), "got: {msg}");
     }
 
     #[test]
     fn test_breadth_requires_tree() {
-        let raw = <RawArgs as clap::Parser>::parse_from(["pkgds", "--breadth", "3"]);
+        let raw = <RawArgs as clap::Parser>::parse_from([
+            "pkgds",
+            "--breadth",
+            "3",
+            "--root",
+            "/nonexistent_path_xyz",
+        ]);
         let msg = raw.into_config().err().unwrap().to_string();
         assert!(msg.contains("requires --tree"), "got: {msg}");
     }
