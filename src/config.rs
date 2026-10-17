@@ -16,6 +16,9 @@ pub enum SortField {
     Ratio,
 }
 
+/// Accepted `--sort` values, shared by the CLI and its tests.
+const VALID_SORT_VALUES: &[&str] = &["name", "real", "size", "apparent", "files", "ratio"];
+
 /// Raw CLI arguments — built by clap.
 #[derive(clap::Parser, Debug)]
 #[command(
@@ -47,9 +50,7 @@ pub struct RawArgs {
     #[arg(
         long,
         default_value = "real",
-        value_parser = clap::builder::PossibleValuesParser::new([
-            "name", "real", "size", "apparent", "files", "ratio",
-        ])
+        value_parser = clap::builder::PossibleValuesParser::new(VALID_SORT_VALUES.iter().copied())
     )]
     pub sort: String,
 
@@ -676,11 +677,12 @@ mod tests {
         }
 
         let sort = possible("sort");
+        assert_eq!(
+            sort,
+            VALID_SORT_VALUES.iter().map(|s| s.to_string()).collect()
+        );
         for v in &sort {
             assert!(RawArgs::parse_sort(v).is_ok(), "parser rejects {v}");
-        }
-        for v in ["name", "real", "size", "apparent", "files", "ratio"] {
-            assert!(sort.contains(v), "clap set is missing {v}");
         }
     }
 }
