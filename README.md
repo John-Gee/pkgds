@@ -88,7 +88,7 @@ pkgds --with-deps -H auto git
 | `--btrfs` | off | Enable btrfs on-disk size tokens (`%z`, `%r`) |
 | `--root <path>` | `/` | Set filesystem root prefix |
 | `--dbpath <path>` | — | Override pacman local DB path (absolute) |
-| `-d <delim>` | `\n` | Delimiter between packages in format mode |
+| `-d <delim>` | newline | Delimiter between packages in format mode (used literally; `-d $'\t'` for a tab) |
 | `-v, --verbose` | off | Show warnings for missing files, permission errors |
 | `--no-color` | auto | Disable color output (also honors `NO_COLOR`) |
 | `--apparent-size` | — | Show apparent file size instead of disk blocks |
