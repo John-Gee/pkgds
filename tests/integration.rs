@@ -716,6 +716,10 @@ fn test_scan_btrfs_unavailable_is_an_error_not_a_warning() {
 /// Hermetic ground truth for `--with-deps`: replay the fixture recorded from
 /// `pacman -Rs --print` on a real Arch system (see
 /// `examples/record-pacman-rs.rs`). Runs everywhere, including CI.
+///
+/// Re-record with `cargo run --example record-pacman-rs` whenever the removal
+/// algorithm changes; `cargo test -- --ignored` re-derives the truth live and
+/// will flag a stale fixture.
 #[test]
 fn test_with_deps_matches_recorded_pacman_rs() {
     use pkgds::deps::removable_with_deps;
@@ -757,21 +761,28 @@ fn test_with_deps_matches_recorded_pacman_rs() {
                     explicit,
                 });
             }
-            Some("target") => pending = Some(fields.next().unwrap().to_string()),
+            Some("target") => {
+                pending = Some(fields.next().expect("target line needs a name").to_string());
+            }
             Some("expect") => {
                 let target = pending.take().expect("expect line before target");
                 let expected = fields
                     .next()
-                    .unwrap()
+                    .expect("expect line needs packages")
                     .split_whitespace()
                     .map(str::to_string)
                     .collect();
                 cases.push((target, expected));
             }
-            _ => {}
+            Some(other) => panic!("unknown fixture tag: {other:?}"),
+            None => panic!("empty fixture line"),
         }
     }
 
+    assert!(
+        pending.is_none(),
+        "fixture ends with a target but no expect"
+    );
     assert!(!cases.is_empty(), "fixture has no cases");
     let index: HashMap<&str, usize> = entries
         .iter()
