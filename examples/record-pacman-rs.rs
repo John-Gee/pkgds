@@ -1,10 +1,10 @@
 //! Record a `--with-deps` ground-truth fixture from a real Arch system.
 //!
-//!     cargo run --example record-pacman-rs > tests/fixtures/pacman_rs.tsv
+//!     cargo run --example record-pacman-rs
 //!
-//! Needs pacman and a populated local database, so it is run by hand (not in
-//! CI). The output is replayed hermetically by
-//! `test_with_deps_matches_recorded_pacman_rs`.
+//! Writes `tests/fixtures/pacman_rs.tsv`. Needs pacman and a populated local
+//! database, so it is run by hand (not in CI). It writes the file only after
+//! every assertion passes, so a failed run never clobbers a good fixture.
 
 use std::fmt::Write as _;
 use std::path::Path;
@@ -14,7 +14,7 @@ use pkgds::pacman::{Filter, load_local_db};
 
 fn main() {
     let dbpath = Path::new("/var/lib/pacman");
-    let (entries, _skipped, _errors) = load_local_db(
+    let (mut entries, skipped, errors) = load_local_db(
         dbpath,
         &Filter {
             targets: vec![],
@@ -23,10 +23,34 @@ fn main() {
     )
     .unwrap();
 
+    // The expectations come from pacman's view of the database; if we read a
+    // different set, the fixture would describe a world pkgds never sees.
+    assert!(
+        skipped == 0 && errors.is_empty(),
+        "the local database was not read cleanly (skipped {skipped}, {} error(s))",
+        errors.len()
+    );
+
+    // Deterministic output: read_dir order is unspecified, and it drives entry
+    // order, which packages get scanned, and so which cases are picked.
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+
     let mut out = String::new();
     writeln!(
         out,
-        "# pkgds --with-deps ground truth, recorded from `pacman -Rs --print`."
+        "# pkgds --with-deps ground truth recorded from `pacman -Rs --print`."
+    )
+    .unwrap();
+    writeln!(out, "# Tab-separated lines:").unwrap();
+    writeln!(
+        out,
+        "#   entry<TAB>name<TAB>explicit(1|0)<TAB>depends(space-separated)<TAB>provides(space-separated)"
+    )
+    .unwrap();
+    writeln!(out, "#   target<TAB>package name").unwrap();
+    writeln!(
+        out,
+        "#   expect<TAB>packages `pacman -Rs` would remove (space-separated)"
     )
     .unwrap();
     for e in &entries {
@@ -83,5 +107,13 @@ fn main() {
         writeln!(out, "expect\t{}", expected.join(" ")).unwrap();
     }
 
-    print!("{out}");
+    assert!(
+        multi + single > 0,
+        "no comparable packages found; refusing to write an empty fixture"
+    );
+
+    std::fs::write("tests/fixtures/pacman_rs.tsv", out).expect("write fixture");
+    eprintln!(
+        "wrote tests/fixtures/pacman_rs.tsv ({multi} multi-package, {single} single-package cases)"
+    );
 }
