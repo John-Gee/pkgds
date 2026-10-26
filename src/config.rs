@@ -111,7 +111,7 @@ pub struct RawArgs {
     #[arg(long)]
     pub min_percent: Option<f64>,
 
-    /// Also include the dependencies that removing the target(s) would free (requires package names or `--search`)
+    /// With targets include freed dependencies; bare ranks all packages by freed space (table only)
     #[arg(long)]
     pub with_deps: bool,
 }
@@ -141,6 +141,15 @@ pub struct Config {
     pub min_percent: f64,
     /// Expand the selection to the dependencies `pacman -Rs` would remove.
     pub with_deps: bool,
+}
+
+impl Config {
+    /// Whether this config is a bare `--with-deps` ranking: no targets, no
+    /// search, no format string. The tree case is rejected during validation,
+    /// so callers only need this predicate.
+    pub fn is_bare_with_deps_ranking(&self) -> bool {
+        self.with_deps && self.targets.is_empty() && self.search.is_none() && self.format.is_none()
+    }
 }
 
 /// Rebase an absolute path from the target system onto `root`, e.g.
@@ -226,14 +235,16 @@ impl RawArgs {
             None
         };
 
-        // 2b. --- Dependency expansion ---
-        // --with-deps expands a selection to the packages `pacman -Rs` would
-        // remove, so it needs something selected. Checked before any path
-        // validation so the flag interaction is reported regardless of the
-        // filesystem state.
-        if self.with_deps && targets.is_empty() && search.is_none() {
+        // 2b. --- Bare ranking is table-only ---
+        // Bare --with-deps (no targets, no search) ranks every package and
+        // needs the table. A format string or --tree with it is a usage
+        // error. Checked before any path validation so the flag interaction
+        // is reported regardless of the filesystem state. --sort is ignored
+        // in bare ranking mode (rank is by SAVES); other validations stay.
+        let is_bare_ranking = self.with_deps && targets.is_empty() && search.is_none();
+        if is_bare_ranking && format.is_some() {
             return Err(PkgdsError::Config(
-                "--with-deps requires package names or --search".to_string(),
+                "--with-deps ranking needs table output (no --tree, no format string)".to_string(),
             ));
         }
 
@@ -268,6 +279,11 @@ impl RawArgs {
         }
         if self.breadth.is_some() && depth.is_none() {
             return Err(PkgdsError::Config("--breadth requires --tree".to_string()));
+        }
+        if is_bare_ranking && depth.is_some() {
+            return Err(PkgdsError::Config(
+                "--with-deps ranking needs table output (no --tree, no format string)".to_string(),
+            ));
         }
 
         // 4. --- Root existence check ---
@@ -625,18 +641,6 @@ mod tests {
     }
 
     #[test]
-    fn test_with_deps_requires_selection() {
-        let raw = <RawArgs as clap::Parser>::parse_from([
-            "pkgds",
-            "--with-deps",
-            "--root",
-            "/nonexistent_path_xyz",
-        ]);
-        let msg = raw.into_config().err().unwrap().to_string();
-        assert!(msg.contains("requires package names"), "got: {msg}");
-    }
-
-    #[test]
     fn test_search_long_alias_matches_short() {
         let short = config_from(&["-s", "rocm"]).unwrap();
         let long = config_from(&["--search", "rocm"]).unwrap();
@@ -644,6 +648,48 @@ mod tests {
             short.search.map(|r| r.as_str().to_string()),
             long.search.map(|r| r.as_str().to_string())
         );
+    }
+
+    #[test]
+    fn test_bare_with_deps_is_allowed() {
+        let config = config_from(&["--with-deps"]).unwrap();
+        assert!(config.with_deps);
+        assert!(config.targets.is_empty());
+        assert!(config.search.is_none());
+        assert!(config.is_bare_with_deps_ranking());
+    }
+
+    #[test]
+    fn test_bare_with_deps_with_format_string_is_table_only_error() {
+        let raw = <RawArgs as clap::Parser>::parse_from([
+            "pkgds",
+            "--with-deps",
+            "%n",
+            "--root",
+            "/nonexistent_path_xyz",
+        ]);
+        let msg = raw.into_config().err().unwrap().to_string();
+        assert!(msg.contains("needs table output"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_bare_with_deps_with_tree_is_table_only_error() {
+        let raw = <RawArgs as clap::Parser>::parse_from([
+            "pkgds",
+            "--with-deps",
+            "--tree",
+            "--root",
+            "/nonexistent_path_xyz",
+        ]);
+        let msg = raw.into_config().err().unwrap().to_string();
+        assert!(msg.contains("needs table output"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_named_with_deps_still_expands() {
+        let config = config_from(&["--with-deps", "bash"]).unwrap();
+        assert!(config.with_deps);
+        assert!(!config.is_bare_with_deps_ranking());
     }
 
     #[test]

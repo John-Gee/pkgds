@@ -27,6 +27,22 @@ SELECTION
   that was installed as a dependency and that nothing else needs.
   --sort ratio requires --btrfs. Flags may follow package names
   (`pkgds bash --btrfs`); a format string starting with `-` needs `--` first.
+
+WITH-DEPS MODES
+  With targets (names or -s/--search) --with-deps expands the selection to
+  what removing them would free: the targets plus every dependency that was
+  installed as a dependency and that nothing else needs. TOTAL is the joint
+  freed bytes.
+  Bare --with-deps (no targets, no -s/--search, no format string) ranks every
+  installed package: one row per package, REAL untouched, SAVES is the space
+  that removing only that package would free (the package plus the deps that
+  would become unneeded). SAVES uses the shown size (REAL, or APPARENT with
+  --apparent-size) summed over that set, so a file claimed by two packages
+  counts in each claim and SAVES values overlap; TOTAL and the % column stay
+  off in this mode. --sort is ignored (rank is by SAVES, then -n applies).
+  Table only: bare --with-deps with a format string or --tree is an error.
+  --btrfs DISK and RATIO stay per package.
+
 EXIT CODES
   0 success. 1 usage error (bad flag combination, missing paths) or nothing
   matched at all. 2 partial result: some file could not be read, some

@@ -905,6 +905,83 @@ fn test_cli_unreadable_files_summary_on_exit_2() {
 }
 
 #[test]
+fn test_scan_bare_with_deps_ranks_by_solo_footprint() {
+    let (_tmp, mut config) = create_deps_chroot();
+    // Bare mode: no targets, no search.
+    config.targets = Vec::new();
+    config.limit = None;
+
+    let report = scan::scan_packages(&config).unwrap();
+
+    // One row per installed package, with a SAVES entry each.
+    assert_eq!(report.packages.len(), 4);
+    let saves = report.saves.as_ref().expect("ranking must set saves");
+    assert_eq!(saves.len(), 4);
+    // `app` frees itself plus `lib`; every other package frees only itself
+    // (`core` stays needed elsewhere, `lib` keeps `core` via `other`).
+    let by_name: std::collections::HashMap<&str, u64> = report
+        .packages
+        .iter()
+        .map(|p| (p.name.as_str(), p.real_size))
+        .collect();
+    let app_saves = saves["app"];
+    assert_eq!(app_saves, by_name["app"] + by_name["lib"]);
+    assert_eq!(saves["lib"], by_name["lib"]);
+    assert_eq!(saves["other"], by_name["other"]);
+    // Ranked by SAVES desc, so `app` comes first.
+    assert_eq!(report.packages[0].name, "app");
+}
+
+#[test]
+fn test_scan_bare_with_deps_limit_applies_after_rank() {
+    let (_tmp, mut config) = create_deps_chroot();
+    config.targets = Vec::new();
+    config.limit = Some(1);
+
+    let report = scan::scan_packages(&config).unwrap();
+
+    assert_eq!(report.packages.len(), 1);
+    assert_eq!(report.packages[0].name, "app");
+}
+
+#[test]
+fn test_cli_bare_with_deps_shows_saves_without_total() {
+    let (_tmp, config) = create_deps_chroot();
+    let out = run_cli(&config, &["--with-deps", "--total"]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    let header = stdout.lines().next().unwrap_or("").to_string();
+    assert!(header.contains("SAVES"), "header missing SAVES: {header}");
+    assert!(!header.contains('%'), "header must omit %: {header}");
+    assert!(!stdout.contains("TOTAL"), "TOTAL must stay off: \n{stdout}");
+    assert!(!stdout.contains("SHOWN"), "SHOWN must stay off: \n{stdout}");
+}
+
+#[test]
+fn test_cli_named_with_deps_expansion_is_unchanged() {
+    let (_tmp, config) = create_deps_chroot();
+    let out = run_cli(&config, &["--with-deps", "app"]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(stdout.contains("app"), "got:\n{stdout}");
+    assert!(stdout.contains("lib"), "got:\n{stdout}");
+    assert!(
+        !stdout.contains("SAVES"),
+        "expansion must not show SAVES: \n{stdout}"
+    );
+}
+
+#[test]
 fn test_cli_search_long_alias_matches_short() {
     let (_tmp, config) = create_test_chroot();
     let short = run_cli(&config, &["-s", "test"]);

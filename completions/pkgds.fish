@@ -30,6 +30,6 @@ complete -c pkgds -l apparent-size -d 'Show apparent file size instead of disk b
 complete -c pkgds -l total -d 'Show total row at the bottom of table output'
 complete -c pkgds -l files -d 'Show file count column'
 complete -c pkgds -l tree -d 'Show a per-package file/dir tree (default depth 1)'
-complete -c pkgds -l with-deps -d 'Also include the dependencies that removing the target(s) would free (requires package names or `--search`)'
+complete -c pkgds -l with-deps -d 'With targets include freed dependencies; bare ranks all packages by freed space (table only)'
 complete -c pkgds -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c pkgds -s V -l version -d 'Print version'

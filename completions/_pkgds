@@ -35,7 +35,7 @@ _pkgds() {
 '--total[Show total row at the bottom of table output]' \
 '--files[Show file count column]' \
 '--tree[Show a per-package file/dir tree (default depth 1)]' \
-'--with-deps[Also include the dependencies that removing the target(s) would free (requires package names or \`--search\`)]' \
+'--with-deps[With targets include freed dependencies; bare ranks all packages by freed space (table only)]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 '-V[Print version]' \

@@ -100,6 +100,9 @@ pub struct ScanReport {
     pub trees_omitted: usize,
     /// Explicitly requested package names that matched nothing in the database.
     pub missing_targets: Vec<String>,
+    /// Bare `--with-deps` ranking only: per-package freed space (SAVES) by
+    /// package name. `None` in every other mode.
+    pub saves: Option<HashMap<String, u64>>,
 }
 
 impl PackageResult {
@@ -283,9 +286,20 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
     };
 
     // Load and parse pacman local DB. With --with-deps the whole database is
-    // needed to resolve dependencies, so load unfiltered and expand the
-    // selection to the packages `pacman -Rs` would remove.
-    let (entries, skipped, load_errors) = if config.with_deps {
+    // needed to resolve dependencies. Expansion (targets or search) filters
+    // the selection to the packages `pacman -Rs` would remove; bare ranking
+    // (no targets, no search, no format) keeps every package and ranks them.
+    let is_ranking = config.is_bare_with_deps_ranking();
+    let (entries, skipped, load_errors) = if is_ranking {
+        let (all, skipped, load_errors) = load_local_db(
+            dbpath,
+            &Filter {
+                targets: Vec::new(),
+                search: None,
+            },
+        )?;
+        (all, skipped, load_errors)
+    } else if config.with_deps {
         let (all, skipped, load_errors) = load_local_db(
             dbpath,
             &Filter {
@@ -331,6 +345,11 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
             errors: load_errors,
             warnings: Vec::new(),
             missing_targets,
+            saves: if is_ranking {
+                Some(HashMap::new())
+            } else {
+                None
+            },
             ..Default::default()
         });
     }
@@ -424,6 +443,35 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
     let total_files = packages.iter().map(|p| p.file_count).sum();
     let total_disk = packages.iter().filter_map(|p| p.btrfs_disk).sum();
 
+    // Bare ranking: one solo closure per package. SAVES is the sum of the
+    // displayed base metric (real, or apparent with --apparent-size) over
+    // the set that removing only that package would free. This sums
+    // per-package claims like TOTAL does (a file shared by two freed
+    // packages counts in each claim), so solo footprints overlap and TOTAL
+    // stays off. --btrfs DISK and RATIO stay per package.
+    let saves: Option<HashMap<String, u64>> = if is_ranking {
+        let index = crate::deps::DepsIndex::build(&entries);
+        let base: Vec<u64> = packages
+            .iter()
+            .map(|p| {
+                if config.apparent_size {
+                    p.apparent_size
+                } else {
+                    p.real_size
+                }
+            })
+            .collect();
+        let mut map: HashMap<String, u64> = HashMap::with_capacity(packages.len());
+        for (i, pkg) in packages.iter().enumerate() {
+            let closure = index.removable_single(&entries, i);
+            let total: u64 = closure.iter().map(|&j| base[j]).sum();
+            map.insert(pkg.name.clone(), total);
+        }
+        Some(map)
+    } else {
+        None
+    };
+
     let mut result = ScanReport {
         packages,
         skipped_packages: skipped,
@@ -444,6 +492,7 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
         trees: Vec::new(),
         trees_omitted: 0,
         missing_targets,
+        saves,
     };
 
     if show_progress {
@@ -451,8 +500,21 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
         let _ = std::io::stderr().flush();
     }
 
-    // Apply sort (descending for real/apparent/files; ascending for name and ratio)
-    result.sort(sort);
+    // Apply sort. Bare ranking ignores --sort and orders by SAVES desc
+    // (name asc breaks ties); -n applies after the rank.
+    if is_ranking {
+        if let Some(ref map) = result.saves {
+            result.packages.sort_by(|a, b| {
+                map.get(&b.name)
+                    .copied()
+                    .unwrap_or(0)
+                    .cmp(&map.get(&a.name).copied().unwrap_or(0))
+                    .then(a.name.cmp(&b.name))
+            });
+        }
+    } else {
+        result.sort(sort);
+    }
 
     // Apply limit
     if let Some(limit) = config.limit {

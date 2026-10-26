@@ -134,6 +134,7 @@ fn subtotal_ratio(compressed: u64, apparent: u64) -> Option<f64> {
 struct Row {
     name: String,
     size: u64,
+    saves: Option<u64>,
     disk: Option<u64>,
     files: u64,
     ratio: Option<f64>,
@@ -183,6 +184,9 @@ pub fn render_table(report: &ScanReport, cfg: &Config) -> String {
     // Show btrfs columns whenever any scanned package has on-disk data
     // (not just the ones currently shown after -n truncation).
     let btrfs_active = cfg.btrfs && report.total_disk > 0;
+    // Bare --with-deps ranking: one row per package with a SAVES column.
+    // Solo footprints overlap, so the share column and TOTAL rows stay off.
+    let is_ranking = cfg.is_bare_with_deps_ranking();
 
     let size_of = |p: &PackageResult| {
         if use_apparent {
@@ -198,7 +202,8 @@ pub fn render_table(report: &ScanReport, cfg: &Config) -> String {
     };
     // A single matching package is always 100% of itself; the column only
     // carries information when there is more than one package to compare.
-    let show_pct = report.total_packages >= 2;
+    // Ranking mode never shows it (solo footprints overlap).
+    let show_pct = !is_ranking && report.total_packages >= 2;
 
     let mut cols = vec![
         Column {
@@ -212,6 +217,13 @@ pub fn render_table(report: &ScanReport, cfg: &Config) -> String {
             right_align: true,
         },
     ];
+    if is_ranking {
+        cols.push(Column {
+            title: "SAVES",
+            width: 0,
+            right_align: true,
+        });
+    }
     if show_pct {
         cols.push(Column {
             title: "%",
@@ -254,20 +266,23 @@ pub fn render_table(report: &ScanReport, cfg: &Config) -> String {
         .map(|p| Row {
             name: p.name.clone(),
             size: size_of(p),
+            saves: report.saves.as_ref().and_then(|m| m.get(&p.name).copied()),
             disk: p.btrfs_disk,
             files: p.file_count,
             ratio: p.btrfs_ratio_percent(),
         })
         .collect();
 
-    // Optional subtotal and grand-total rows.
-    if cfg.total {
+    // Optional subtotal and grand-total rows (off in ranking mode: solo
+    // footprints overlap, so a sum would double count).
+    if cfg.total && !is_ranking {
         if packages.len() < report.total_packages {
             let shown_apparent: u64 = packages.iter().map(|p| p.apparent_size).sum();
             let shown_compressed = sum_disk(packages);
             rows.push(Row {
                 name: format!("SHOWN (top {})", packages.len()),
                 size: rows.iter().map(|r| r.size).sum(),
+                saves: None,
                 disk: if btrfs_active {
                     Some(shown_compressed)
                 } else {
@@ -280,6 +295,7 @@ pub fn render_table(report: &ScanReport, cfg: &Config) -> String {
         rows.push(Row {
             name: "TOTAL".to_string(),
             size: grand_total,
+            saves: None,
             disk: if btrfs_active {
                 Some(report.total_disk)
             } else {
@@ -295,6 +311,14 @@ pub fn render_table(report: &ScanReport, cfg: &Config) -> String {
             (sanitize_name(&row.name), Style::Plain),
             (format_field_size(row.size, cfg.humansize), Style::Cyan),
         ];
+        if is_ranking {
+            cells.push((
+                row.saves
+                    .map(|s| format_field_size(s, cfg.humansize))
+                    .unwrap_or_else(|| "N/A".to_string()),
+                Style::Cyan,
+            ));
+        }
         if show_pct {
             cells.push((format_pct(row.size, grand_total), Style::Plain));
         }
@@ -949,5 +973,39 @@ mod tests {
             out.lines().next().unwrap().contains("100.0%"),
             "got:\n{out}"
         );
+    }
+
+    fn ranking_report() -> (ScanReport, Config) {
+        let pkgs = sample_packages();
+        let mut saves = std::collections::HashMap::new();
+        saves.insert("zlib".to_string(), 2_697_614_592u64);
+        saves.insert("firefox".to_string(), 863_200_000u64);
+        saves.insert("bash".to_string(), 50_000_000u64);
+        let mut report = report_of(pkgs);
+        report.saves = Some(saves);
+        let mut cfg = make_config(false);
+        cfg.with_deps = true;
+        (report, cfg)
+    }
+
+    #[test]
+    fn test_ranking_shows_saves_and_hides_pct() {
+        let (report, cfg) = ranking_report();
+        assert!(cfg.is_bare_with_deps_ranking());
+        let out = render_table(&report, &cfg);
+        let header = out.lines().next().unwrap_or("");
+        assert!(header.contains("SAVES"), "header missing SAVES: {header}");
+        assert!(!header.contains('%'), "header must omit %: {header}");
+        assert!(out.contains("SAVES"), "got:\n{out}");
+    }
+
+    #[test]
+    fn test_ranking_suppresses_total_rows() {
+        let (mut report, mut cfg) = ranking_report();
+        cfg.total = true;
+        report.packages.truncate(2);
+        let out = render_table(&report, &cfg);
+        assert!(!out.contains("TOTAL"), "TOTAL must stay off: \n{out}");
+        assert!(!out.contains("SHOWN"), "SHOWN must stay off: \n{out}");
     }
 }

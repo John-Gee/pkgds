@@ -74,6 +74,9 @@ pkgds --root /mnt/arch --dbpath /mnt/arch/var/lib/pacman -H auto
 
 # A package plus the dependencies removing it would free
 pkgds --with-deps -H auto git
+
+# Rank all packages by space that removing only that package would free
+pkgds --with-deps -H auto
 ```
 
 ### Options
@@ -94,7 +97,7 @@ pkgds --with-deps -H auto git
 | `--apparent-size` | none | Show apparent file size instead of disk blocks |
 | `--total` | none | Show a TOTAL row; when `-n` truncates the list, also a SHOWN subtotal |
 | `--files` | none | Show file count column |
-| `--with-deps` | off | Also include the dependencies that removing the target(s) would free (requires package names or `--search`) |
+| `--with-deps` | off | With targets include freed dependencies; bare ranks all packages by freed space (table only) |
 | `--tree` | off | Expand each shown package into a file/dir tree (default depth 1) |
 | `--depth <N>` | 1 (with `--tree`) | Tree depth in levels; implies `--tree` |
 | `--breadth <K>` | 5 | Show at most K children per tree directory (0 = no limit; requires `--tree`) |
@@ -112,11 +115,21 @@ are ignored in the tree view, and a format string takes precedence over
 with no on-disk data is left out and reported on stderr rather than shown in
 a second unit.
 
-`--with-deps` expands the named packages (or the `-s`/`--search` matches) to what removing
-them would free: the packages themselves plus every dependency that was
-installed as a dependency and that nothing else needs. Shared dependencies such
-as glibc are therefore not counted, and the TOTAL row is the sum of those
-packages' usage.
+`--with-deps` has two modes. With targets (names or `-s`/`--search` matches)
+it expands the selection to what removing them would free: the packages
+themselves plus every dependency that was installed as a dependency and that
+nothing else needs. Shared dependencies such as glibc are therefore not
+counted, and the TOTAL row is the sum of those packages' usage.
+
+Bare `--with-deps` (no targets, no `-s`/`--search`, no format string) ranks
+every installed package: one row per package, REAL untouched, SAVES is the
+space that removing only that package would free (the package plus the deps
+that would become unneeded). SAVES uses the shown size (REAL, or APPARENT with
+`--apparent-size`) summed over that set, so a file claimed by two packages
+counts in each claim and SAVES values overlap; TOTAL and the `%` column stay
+off in this mode. `--sort` is ignored (rank is by SAVES, then `-n` applies).
+Table only: bare `--with-deps` with a format string or `--tree` is an error.
+`--btrfs` DISK and RATIO stay per package.
 
 ### Format Tokens
 
