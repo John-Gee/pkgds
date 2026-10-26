@@ -122,7 +122,8 @@ nothing else needs. Shared dependencies such as glibc are therefore not
 counted, and the TOTAL row is the sum of those packages' usage.
 
 Bare `--with-deps` (no targets, no `-s`/`--search`, no format string) ranks
-every installed package: one row per package, REAL untouched, SAVES is the
+installed packages (top 20 shown by default, `-n 0` for all): one row per
+shown package, REAL untouched, SAVES is the
 space that removing only that package would free (the package plus the deps
 that would become unneeded). SAVES uses the shown size (REAL, or APPARENT with
 `--apparent-size`) summed over that set, so a file claimed by two packages
@@ -156,7 +157,8 @@ longer owns are excluded.
 
 ## Exit Codes
 
-0 success. 1 usage error or nothing matched. 2 partial result (some file could
-not be read, btrfs data was unavailable, or some names were unknown); treat 2
-as "numbers are a lower bound", not as failure. See `pkgds --help` and
-`pkgds(1)` for the full list.
+0 success. 1 validated usage error (bad flag combination, missing paths)
+or nothing matched. 2 unknown flag or bad value, or partial result (some
+file could not be read, some package was malformed, btrfs data was
+unavailable, or some names were unknown); treat 2 as "numbers are a lower
+bound", not as failure. See `pkgds --help` and `pkgds(1)` for the full list.

@@ -22,9 +22,7 @@ MODES
   on-disk data is left out and reported on stderr rather than shown.
 
 SELECTION
-  --with-deps expands the named packages (or the -s/--search matches) to what
-  removing them would free: the packages themselves plus every dependency
-  that was installed as a dependency and that nothing else needs.
+  Named --with-deps expansion is described under WITH-DEPS MODES below.
   --sort ratio requires --btrfs. Flags may follow package names
   (`pkgds bash --btrfs`); a format string starting with `-` needs `--` first.
 
@@ -33,8 +31,9 @@ WITH-DEPS MODES
   what removing them would free: the targets plus every dependency that was
   installed as a dependency and that nothing else needs. TOTAL is the joint
   freed bytes.
-  Bare --with-deps (no targets, no -s/--search, no format string) ranks every
-  installed package: one row per package, REAL untouched, SAVES is the space
+  Bare --with-deps (no targets, no -s/--search, no format string) ranks
+  installed packages (top 20 shown by default, -n 0 for all): one row per
+  shown package, REAL untouched, SAVES is the space
   that removing only that package would free (the package plus the deps that
   would become unneeded). SAVES uses the shown size (REAL, or APPARENT with
   --apparent-size) summed over that set, so a file claimed by two packages
@@ -44,10 +43,11 @@ WITH-DEPS MODES
   --btrfs DISK and RATIO stay per package.
 
 EXIT CODES
-  0 success. 1 usage error (bad flag combination, missing paths) or nothing
-  matched at all. 2 partial result: some file could not be read, some
-  package was malformed, btrfs data was unavailable, or some requested
-  package names were unknown. A full scan exits 2 whenever any package owns
-  a file this user cannot read, so treat 2 as \"numbers are a lower bound\",
+  0 success. 1 validated usage error (bad flag combination, missing paths)
+  or nothing matched at all. 2 unknown flag or bad value (argument parse
+  error), or partial result: some file could not be read, some package was
+  malformed, btrfs data was unavailable, or some requested package names
+  were unknown. A full scan exits 2 whenever any package owns a file this
+  user cannot read, so treat 2 as \"numbers are a lower bound\",
   not as failure.\
 ";
