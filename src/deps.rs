@@ -133,6 +133,21 @@ impl DepsIndex {
     pub fn removable_single(&self, entries: &[PackageEntry], idx: usize) -> Vec<usize> {
         self.removable(entries, &[idx])
     }
+
+    /// Solo footprint for ranking: the sum of `base` over what removing only
+    /// `idx` would free, or zero when something still installed requires
+    /// `idx` (removal would be refused, so nothing is achievable). `base`
+    /// must align with `entries` (one value per package).
+    pub fn solo_footprint(&self, entries: &[PackageEntry], idx: usize, base: &[u64]) -> u64 {
+        let freed = self.removable_single(entries, idx);
+        if self.requirers[idx]
+            .iter()
+            .any(|&y| y != idx && !freed.contains(&y))
+        {
+            return 0;
+        }
+        freed.iter().map(|&j| base[j]).sum()
+    }
 }
 
 /// Given every installed package and the selected target indices, return the
@@ -404,5 +419,24 @@ mod tests {
             names(&entries, &index.removable_single(&entries, 3)),
             vec!["other"]
         );
+    }
+
+    #[test]
+    fn test_solo_footprint_is_zero_when_still_required() {
+        // `core` is required by `other`, which stays: removing only `core`
+        // would be refused, so its achievable footprint is zero. `app`'s
+        // chain is exclusive, so it keeps its footprint.
+        let entries = vec![
+            pkg("app", true, &["lib"], &[]),
+            pkg("lib", false, &["core"], &[]),
+            pkg("core", false, &[], &[]),
+            pkg("other", true, &["core"], &[]),
+        ];
+        let index = DepsIndex::build(&entries);
+        let base = vec![10, 20, 40, 80];
+        assert_eq!(index.solo_footprint(&entries, 0, &base), 30);
+        assert_eq!(index.solo_footprint(&entries, 1, &base), 0);
+        assert_eq!(index.solo_footprint(&entries, 2, &base), 0);
+        assert_eq!(index.solo_footprint(&entries, 3, &base), 80);
     }
 }

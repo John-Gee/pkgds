@@ -917,19 +917,21 @@ fn test_scan_bare_with_deps_ranks_by_solo_footprint() {
     assert_eq!(report.packages.len(), 4);
     let saves = report.saves.as_ref().expect("ranking must set saves");
     assert_eq!(saves.len(), 4);
-    // `app` frees itself plus `lib`; every other package frees only itself
-    // (`core` stays needed elsewhere, `lib` keeps `core` via `other`).
+    // `app` frees itself plus `lib`; `other` frees only itself. `lib` and
+    // `core` are still required by packages that stay, so removing them
+    // would be refused and their SAVES is zero.
     let by_name: std::collections::HashMap<&str, u64> = report
         .packages
         .iter()
         .map(|p| (p.name.as_str(), p.real_size))
         .collect();
-    let app_saves = saves["app"];
-    assert_eq!(app_saves, by_name["app"] + by_name["lib"]);
-    assert_eq!(saves["lib"], by_name["lib"]);
+    assert_eq!(saves["app"], by_name["app"] + by_name["lib"]);
     assert_eq!(saves["other"], by_name["other"]);
-    // Ranked by SAVES desc, so `app` comes first.
-    assert_eq!(report.packages[0].name, "app");
+    assert_eq!(saves["lib"], 0);
+    assert_eq!(saves["core"], 0);
+    // Ranked by SAVES desc, zeros sink, ties break by name.
+    let order: Vec<&str> = report.packages.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(order, vec!["app", "other", "core", "lib"]);
 }
 
 #[test]

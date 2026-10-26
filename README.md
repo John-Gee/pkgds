@@ -125,7 +125,8 @@ Bare `--with-deps` (no targets, no `-s`/`--search`, no format string) ranks
 installed packages (top 20 shown by default, `-n 0` for all): one row per
 shown package, REAL untouched, SAVES is the
 space that removing only that package would free (the package plus the deps
-that would become unneeded). SAVES uses the shown size (REAL, or APPARENT with
+that would become unneeded), or zero when something still installed requires
+it (removal would be refused). SAVES uses the shown size (REAL, or APPARENT with
 `--apparent-size`) summed over that set, so a file claimed by two packages
 counts in each claim and SAVES values overlap; TOTAL and the `%` column stay
 off in this mode. `--sort` is ignored (rank is by SAVES, then `-n` applies).

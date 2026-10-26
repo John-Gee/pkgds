@@ -438,12 +438,14 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
     let total_files = packages.iter().map(|p| p.file_count).sum();
     let total_disk = packages.iter().filter_map(|p| p.btrfs_disk).sum();
 
-    // Bare ranking: one solo closure per package. SAVES is the sum of the
+    // Bare ranking: one solo footprint per package. SAVES is the sum of the
     // displayed base metric (real, or apparent with --apparent-size) over
-    // the set that removing only that package would free. This sums
-    // per-package claims like TOTAL does (a file shared by two freed
-    // packages counts in each claim), so solo footprints overlap and TOTAL
-    // stays off. --btrfs DISK and RATIO stay per package.
+    // the set that removing only that package would free, or zero when
+    // something still installed requires the package (removal would be
+    // refused, so nothing is achievable). This sums per-package claims like
+    // TOTAL does (a file shared by two freed packages counts in each
+    // claim), so solo footprints overlap and TOTAL stays off. --btrfs DISK
+    // and RATIO stay per package.
     let saves: Option<HashMap<String, u64>> = if is_ranking {
         let index = crate::deps::DepsIndex::build(&entries);
         let base: Vec<u64> = packages
@@ -461,8 +463,7 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
         // in order (see the zip above), so closure indices apply to both.
         debug_assert_eq!(packages.len(), entries.len());
         for (i, pkg) in packages.iter().enumerate() {
-            let closure = index.removable_single(&entries, i);
-            let total: u64 = closure.iter().map(|&j| base[j]).sum();
+            let total = index.solo_footprint(&entries, i, &base);
             map.insert(pkg.name.clone(), total);
         }
         Some(map)
