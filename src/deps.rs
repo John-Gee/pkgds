@@ -33,14 +33,12 @@ fn resolve(
     by_provides.get(name).copied()
 }
 
-/// Shared dependency lookup built once from the installed package list.
+/// Shared dependency graph built once from the installed package list.
 ///
-/// Holds the name and provides maps plus the resolved dependency graph, so
-/// repeated queries (one per package in bare ranking mode) do not rebuild
-/// them. Built from `entries`; indices refer to positions in that slice.
+/// Holds the resolved dependency graph, so repeated queries (one per package
+/// in bare ranking mode) do not rebuild it. Built from `entries`; indices
+/// refer to positions in that slice.
 pub struct DepsIndex {
-    by_name: HashMap<String, usize>,
-    by_provides: HashMap<String, usize>,
     /// Resolved direct dependencies per package (unknown specs dropped).
     adjacency: Vec<Vec<usize>>,
     /// Direct requirers per package (reverse of adjacency, via provides too).
@@ -85,8 +83,6 @@ impl DepsIndex {
         }
 
         DepsIndex {
-            by_name,
-            by_provides,
             adjacency,
             requirers,
         }
@@ -136,12 +132,6 @@ impl DepsIndex {
     /// Solo query for reuse: what removing only `idx` would free.
     pub fn removable_single(&self, entries: &[PackageEntry], idx: usize) -> Vec<usize> {
         self.removable(entries, &[idx])
-    }
-
-    /// Look up the installed package satisfying a dependency spec, using the
-    /// prebuilt maps. Kept so the shared index owns the full lookup.
-    pub fn lookup(&self, spec: &str) -> Option<usize> {
-        resolve(spec, &self.by_name, &self.by_provides)
     }
 }
 
@@ -287,10 +277,71 @@ mod tests {
         assert_eq!(names(&entries, &out), vec!["app"]);
     }
 
+    /// Independent reference: resolves each spec by linear scan (exact name,
+    /// else alphabetically-first provider) and runs the same removal rule.
+    /// Shares only `bare_dep_name` and the fixture shape with the code under
+    /// test, so it checks the shared index wiring rather than repeating it.
+    fn naive_removable(entries: &[PackageEntry], selected: &[usize]) -> Vec<usize> {
+        fn resolve_all(entries: &[PackageEntry], spec: &str) -> Option<usize> {
+            let name = bare_dep_name(spec);
+            if let Some(i) = entries.iter().position(|e| e.name == name) {
+                return Some(i);
+            }
+            entries
+                .iter()
+                .enumerate()
+                .filter(|(_, e)| e.provides.iter().any(|p| bare_dep_name(p) == name))
+                .min_by_key(|(_, e)| &e.name)
+                .map(|(i, _)| i)
+        }
+        let adj: Vec<Vec<usize>> = entries
+            .iter()
+            .map(|e| {
+                e.depends
+                    .iter()
+                    .filter_map(|d| resolve_all(entries, d))
+                    .collect()
+            })
+            .collect();
+        let mut requirers: Vec<Vec<usize>> = vec![Vec::new(); entries.len()];
+        for (y, deps) in adj.iter().enumerate() {
+            for &x in deps {
+                requirers[x].push(y);
+            }
+        }
+        let mut closure = std::collections::HashSet::new();
+        let mut stack = selected.to_vec();
+        while let Some(x) = stack.pop() {
+            if closure.insert(x) {
+                stack.extend(adj[x].iter().copied().filter(|y| !closure.contains(y)));
+            }
+        }
+        let mut removed: std::collections::HashSet<usize> = selected.iter().copied().collect();
+        loop {
+            let mut changed = false;
+            for &x in &closure {
+                if removed.contains(&x) || entries[x].explicit {
+                    continue;
+                }
+                if requirers[x].iter().all(|y| removed.contains(y)) {
+                    removed.insert(x);
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        let mut out: Vec<usize> = removed.into_iter().collect();
+        out.sort_unstable();
+        out
+    }
+
     #[test]
-    fn test_index_matches_wrapper_for_every_selection() {
-        // Contract: the shared index is only a speed-up; it must give the
-        // same answer as the one-shot wrapper for every selection.
+    fn test_index_matches_naive_reference_for_every_selection() {
+        // Contract: the shared index is only a speed-up. An independent
+        // reimplementation must agree with it for every selection, and the
+        // result must uphold the removal invariants.
         let entries = vec![
             pkg("app1", true, &["lib"], &[]),
             pkg("app2", true, &["lib"], &[]),
@@ -305,11 +356,27 @@ mod tests {
             let selected: Vec<usize> = (0..entries.len())
                 .filter(|i| mask & (1 << i) != 0)
                 .collect();
+            let out = index.removable(&entries, &selected);
             assert_eq!(
-                index.removable(&entries, &selected),
-                removable_with_deps(&entries, &selected),
+                out,
+                naive_removable(&entries, &selected),
                 "mismatch for selection {selected:?}"
             );
+            for &t in &selected {
+                assert!(
+                    out.contains(&t),
+                    "target {t} must be freed for selection {selected:?}"
+                );
+            }
+            for (i, e) in entries.iter().enumerate() {
+                if !selected.contains(&i) && e.explicit {
+                    assert!(
+                        !out.contains(&i),
+                        "explicit dep {} must be kept for selection {selected:?}",
+                        e.name
+                    );
+                }
+            }
         }
     }
 
@@ -330,7 +397,7 @@ mod tests {
         );
         assert_eq!(
             index.removable_single(&entries, 0),
-            removable_with_deps(&entries, &[0])
+            naive_removable(&entries, &[0])
         );
         // A shared dependency is kept by the solo query too.
         assert_eq!(

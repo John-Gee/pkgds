@@ -148,7 +148,8 @@ impl Config {
     /// search, no format string. The tree case is rejected during validation,
     /// so callers only need this predicate.
     pub fn is_bare_with_deps_ranking(&self) -> bool {
-        self.with_deps && self.targets.is_empty() && self.search.is_none() && self.format.is_none()
+        RawArgs::bare_ranking_selected(self.with_deps, &self.targets, &self.search)
+            && self.format.is_none()
     }
 }
 
@@ -163,6 +164,14 @@ fn rebase_under_root(root: &Path, path: &Path) -> PathBuf {
 }
 
 impl RawArgs {
+    /// Bare-ranking selection: `--with-deps` with no targets and no search.
+    /// Shared by `into_config` and `Config::is_bare_with_deps_ranking` so the
+    /// two spellings cannot drift; the Config check additionally requires
+    /// table output (no format string).
+    fn bare_ranking_selected(with_deps: bool, targets: &[String], search: &Option<Regex>) -> bool {
+        with_deps && targets.is_empty() && search.is_none()
+    }
+
     /// Parse a humansize string into UnitSpec.
     fn parse_humansize(s: &str) -> std::result::Result<UnitSpec, String> {
         match s {
@@ -241,7 +250,7 @@ impl RawArgs {
         // error. Checked before any path validation so the flag interaction
         // is reported regardless of the filesystem state. --sort is ignored
         // in bare ranking mode (rank is by SAVES); other validations stay.
-        let is_bare_ranking = self.with_deps && targets.is_empty() && search.is_none();
+        let is_bare_ranking = Self::bare_ranking_selected(self.with_deps, &targets, &search);
         if is_bare_ranking && format.is_some() {
             return Err(PkgdsError::Config(
                 "--with-deps ranking needs table output (no --tree, no format string)".to_string(),
@@ -253,8 +262,10 @@ impl RawArgs {
 
         // 3b. --- Flag interactions ---
         // These are all flag combinations, so they are reported before any
-        // filesystem probing rather than as a path error.
-        if sort == SortField::Ratio && !self.btrfs {
+        // filesystem probing rather than as a path error. The ratio check
+        // is skipped in bare ranking mode: ranking ignores --sort, so
+        // demanding --btrfs there would only trigger a needless sweep.
+        if sort == SortField::Ratio && !self.btrfs && !is_bare_ranking {
             return Err(PkgdsError::Config(
                 "--sort ratio requires --btrfs".to_string(),
             ));
@@ -656,6 +667,19 @@ mod tests {
         assert!(config.with_deps);
         assert!(config.targets.is_empty());
         assert!(config.search.is_none());
+        assert!(config.is_bare_with_deps_ranking());
+    }
+
+    #[test]
+    fn test_bare_with_deps_ignores_sort_ratio_requirement() {
+        // Ranking ignores --sort, so --sort ratio must not demand --btrfs.
+        let config = config_from(&["--with-deps", "--sort", "ratio"]).unwrap();
+        assert!(config.is_bare_with_deps_ranking());
+    }
+
+    #[test]
+    fn test_bare_with_deps_accepts_other_sort_fields() {
+        let config = config_from(&["--with-deps", "--sort", "name"]).unwrap();
         assert!(config.is_bare_with_deps_ranking());
     }
 

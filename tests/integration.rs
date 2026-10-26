@@ -993,3 +993,42 @@ fn test_cli_search_long_alias_matches_short() {
     assert!(short_out.contains("testpkg"), "got:\n{short_out}");
     assert_eq!(short_out, long_out, "long alias must match short");
 }
+
+#[test]
+fn test_scan_bare_with_deps_saves_use_apparent_size() {
+    let (_tmp, mut config) = create_deps_chroot();
+    config.targets = Vec::new();
+    config.limit = None;
+    config.apparent_size = true;
+
+    let report = scan::scan_packages(&config).unwrap();
+
+    let saves = report.saves.as_ref().expect("ranking must set saves");
+    let by_name: std::collections::HashMap<&str, u64> = report
+        .packages
+        .iter()
+        .map(|p| (p.name.as_str(), p.apparent_size))
+        .collect();
+    assert_eq!(saves["app"], by_name["app"] + by_name["lib"]);
+    assert_eq!(report.packages[0].name, "app");
+}
+
+#[test]
+fn test_scan_bare_with_deps_ignores_sort_field() {
+    // Ranking is always by SAVES desc: sorting by name must not change it.
+    let (_tmp, mut named_config) = create_deps_chroot();
+    named_config.targets = Vec::new();
+    named_config.limit = None;
+    named_config.sort = SortField::Name;
+    let named = scan::scan_packages(&named_config).unwrap();
+
+    let (_tmp, mut default_config) = create_deps_chroot();
+    default_config.targets = Vec::new();
+    default_config.limit = None;
+    let default = scan::scan_packages(&default_config).unwrap();
+
+    let named_order: Vec<&str> = named.packages.iter().map(|p| p.name.as_str()).collect();
+    let default_order: Vec<&str> = default.packages.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(named_order, default_order);
+    assert_eq!(named_order[0], "app");
+}

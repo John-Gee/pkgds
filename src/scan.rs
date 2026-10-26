@@ -286,27 +286,23 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
     };
 
     // Load and parse pacman local DB. With --with-deps the whole database is
-    // needed to resolve dependencies. Expansion (targets or search) filters
-    // the selection to the packages `pacman -Rs` would remove; bare ranking
-    // (no targets, no search, no format) keeps every package and ranks them.
+    // needed to resolve dependencies, so load unfiltered; expansion (targets
+    // or search) then filters the selection to what `pacman -Rs` would
+    // remove, while bare ranking (no targets, no search, no format) keeps
+    // every package and ranks them.
     let is_ranking = config.is_bare_with_deps_ranking();
-    let (entries, skipped, load_errors) = if is_ranking {
-        let (all, skipped, load_errors) = load_local_db(
+    let (all, skipped, load_errors) = if config.with_deps {
+        load_local_db(
             dbpath,
             &Filter {
                 targets: Vec::new(),
                 search: None,
             },
-        )?;
-        (all, skipped, load_errors)
-    } else if config.with_deps {
-        let (all, skipped, load_errors) = load_local_db(
-            dbpath,
-            &Filter {
-                targets: Vec::new(),
-                search: None,
-            },
-        )?;
+        )?
+    } else {
+        load_local_db(dbpath, &filter)?
+    };
+    let entries: Vec<_> = if config.with_deps && !is_ranking {
         let selected: Vec<usize> = all
             .iter()
             .enumerate()
@@ -314,10 +310,9 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
             .map(|(i, _)| i)
             .collect();
         let keep = crate::deps::removable_with_deps(&all, &selected);
-        let entries: Vec<_> = keep.into_iter().map(|i| all[i].clone()).collect();
-        (entries, skipped, load_errors)
+        keep.into_iter().map(|i| all[i].clone()).collect()
     } else {
-        load_local_db(dbpath, &filter)?
+        all
     };
 
     // Explicit targets that are not installed at all are a user error worth
@@ -462,6 +457,9 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
             })
             .collect();
         let mut map: HashMap<String, u64> = HashMap::with_capacity(packages.len());
+        // Index invariant: in ranking mode `packages` is built from `entries`
+        // in order (see the zip above), so closure indices apply to both.
+        debug_assert_eq!(packages.len(), entries.len());
         for (i, pkg) in packages.iter().enumerate() {
             let closure = index.removable_single(&entries, i);
             let total: u64 = closure.iter().map(|&j| base[j]).sum();
