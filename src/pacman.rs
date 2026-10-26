@@ -14,7 +14,7 @@ pub struct DescFields {
     pub reason: Option<u64>,
 }
 
-/// Search/filter configuration — by target name(s) and/or a regex search pattern.
+/// Search/filter configuration by target name(s) and/or a regex search pattern.
 #[derive(Debug, Clone)]
 pub struct Filter {
     pub targets: Vec<String>,
@@ -59,10 +59,10 @@ pub fn parse_desc(text: &str) -> crate::error::Result<DescFields> {
                 if !key.is_empty() {
                     current_key = Some(key);
                 } else {
-                    // `%` followed by `%` — ignore as malformed header
+                    // `%` followed by `%`: ignore as malformed header
                 }
             } else {
-                // `%FOOBAR` without closing `%` — treat as value of current key
+                // `%FOOBAR` without closing `%`: treat as value of current key
                 if let Some(k) = &current_key {
                     values.entry(k.clone()).or_default().push(line.to_string());
                 }
@@ -75,7 +75,7 @@ pub fn parse_desc(text: &str) -> crate::error::Result<DescFields> {
         }
     }
 
-    // Extract NAME — must be present and non-empty
+    // Extract NAME: must be present and non-empty
     let name_lines = values.get("NAME").cloned().unwrap_or_default();
     let name = last_non_empty(&name_lines);
     if name.is_none() || name.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) {
@@ -84,7 +84,7 @@ pub fn parse_desc(text: &str) -> crate::error::Result<DescFields> {
         ));
     }
 
-    // Extract VERSION — must be present and non-empty
+    // Extract VERSION: must be present and non-empty
     let version_lines = values.get("VERSION").cloned().unwrap_or_default();
     let version = last_non_empty(&version_lines);
     if version.is_none()
@@ -98,7 +98,7 @@ pub fn parse_desc(text: &str) -> crate::error::Result<DescFields> {
         ));
     }
 
-    // Extract SIZE — missing or unparseable → 0
+    // Extract SIZE: missing or unparseable → 0
     let size: u64 = values
         .get("SIZE")
         .map(|lines| {
@@ -110,11 +110,11 @@ pub fn parse_desc(text: &str) -> crate::error::Result<DescFields> {
         })
         .unwrap_or(0);
 
-    // Extract DEPENDS / PROVIDES — multi-line lists of raw dependency specs.
+    // Extract DEPENDS / PROVIDES: multi-line lists of raw dependency specs.
     let depends = list_field(&values, "DEPENDS");
     let provides = list_field(&values, "PROVIDES");
 
-    // Extract REASON — 0 = explicit, 1 = dependency; absent on older databases.
+    // Extract REASON: 0 = explicit, 1 = dependency; absent on older databases.
     let reason = values
         .get("REASON")
         .and_then(|lines| last_non_empty(lines))
@@ -173,7 +173,7 @@ pub fn parse_files(text: &str) -> Vec<PathBuf> {
         }
 
         if !seen_files {
-            // No %FILES% header seen yet — treat all non-empty lines as paths
+            // No %FILES% header seen yet; treat all non-empty lines as paths
             let path = line.trim();
             if path.is_empty() {
                 continue;
@@ -223,7 +223,7 @@ pub fn parse_pacman_conf(path: &Path) -> crate::error::Result<PacmanConf> {
             continue;
         }
 
-        // Check for [section] headers — skip them
+        // Check for [section] headers: skip them
         if trimmed.starts_with('[') && trimmed.ends_with(']') {
             continue;
         }
@@ -434,7 +434,7 @@ mod tests {
     use super::*;
     use std::path::Path;
 
-    // D2/D3 — parse_desc tests
+    // D2/D3: parse_desc tests
     #[test]
     fn test_parse_desc() {
         let text = "%NAME%\nhello_pkg\n%DESCRIPTION%\nA test package.\n%VERSION%\n1.0-1\n%BUILDINFO%\n%SIZE%\n12345678\n";
@@ -475,7 +475,7 @@ mod tests {
         assert!(parse_desc(text).is_err());
     }
 
-    // D4/D5 — parse_files tests
+    // D4/D5: parse_files tests
     #[test]
     fn test_parse_files_all() {
         let text =
@@ -492,7 +492,7 @@ mod tests {
         assert_eq!(paths.len(), 2);
     }
 
-    // D6/D7 — pacman_conf tests
+    // D6/D7: pacman_conf tests
     #[test]
     fn test_parse_pacman_conf_valid_dbpath() {
         let tmp = tempfile::tempdir().unwrap();
@@ -577,7 +577,7 @@ mod tests {
         assert_eq!(entries[0].version, "2.0-1");
     }
 
-    // D9 — load_local_db filter tests using real temp directories
+    // D9: load_local_db filter tests using real temp directories
 
     #[test]
     fn test_load_local_db_target_filter() {
@@ -668,7 +668,7 @@ mod tests {
         let local_parent = dbpath.join("local");
         std::fs::create_dir_all(&local_parent).unwrap();
 
-        // pkg-foo — matches target "pkg-foo" AND regex "foo"
+        // pkg-foo: matches target "pkg-foo" AND regex "foo"
         let p1 = local_parent.join("pkg-foo-1.0-1");
         std::fs::create_dir_all(&p1).unwrap();
         std::fs::write(
@@ -678,7 +678,7 @@ mod tests {
         .unwrap();
         std::fs::write(p1.join("files"), "%FILES%\n/usr/lib.so\n").unwrap();
 
-        // pkg-bar — does NOT match target "pkg-foo" (but would match regex)
+        // pkg-bar: does NOT match target "pkg-foo" (but would match regex)
         let p2 = local_parent.join("pkg-bar-2.0-1");
         std::fs::create_dir_all(&p2).unwrap();
         std::fs::write(

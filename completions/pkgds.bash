@@ -23,7 +23,7 @@ _pkgds() {
 
     case "${cmd}" in
         pkgds)
-            opts="-H -s -n -d -v -h -V --sort --limit --btrfs --root --dbpath --verbose --no-color --apparent-size --total --files --tree --depth --breadth --min-percent --with-deps --help --version"
+            opts="-H -s -n -d -v -h -V --search --sort --limit --btrfs --root --dbpath --verbose --no-color --apparent-size --total --files --tree --depth --breadth --min-percent --with-deps --help --version"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -31,6 +31,10 @@ _pkgds() {
             case "${prev}" in
                 -H)
                     COMPREPLY=($(compgen -W "B K Ki M Mi G Gi T Ti auto auto-si" -- "${cur}"))
+                    return 0
+                    ;;
+                --search)
+                    COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
                 -s)

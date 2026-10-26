@@ -236,7 +236,7 @@ fn stat_package(
                 }
             }
             StatResult::NotFound => {
-                // Missing file — not an error, skip silently
+                // Missing file is not an error; skip silently
             }
             StatResult::PermissionDenied => {
                 permission_errors += 1;
@@ -309,7 +309,7 @@ pub fn scan_packages(config: &Config) -> Result<ScanReport> {
     // Explicit targets that are not installed at all are a user error worth
     // reporting, not a silently empty result. Checked against the whole
     // database (not the filtered entries), so a target that merely doesn't
-    // match --search — or whose desc is malformed — is not misreported.
+    // match --search (or whose desc is malformed) is not misreported.
     let missing_targets: Vec<String> = if config.targets.is_empty() {
         Vec::new()
     } else {
@@ -1239,11 +1239,11 @@ mod tests {
         report.truncate(5);
         assert_eq!(report.packages.len(), 5);
 
-        // Truncate to same size — no change
+        // Truncate to same size: no change
         report.truncate(5);
         assert_eq!(report.packages.len(), 5);
 
-        // Truncate to larger — no change (just keep as is)
+        // Truncate to larger: no change (just keep as is)
         report.truncate(15);
         assert_eq!(report.packages.len(), 5);
     }

@@ -903,3 +903,16 @@ fn test_cli_unreadable_files_summary_on_exit_2() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+#[test]
+fn test_cli_search_long_alias_matches_short() {
+    let (_tmp, config) = create_test_chroot();
+    let short = run_cli(&config, &["-s", "test"]);
+    let long = run_cli(&config, &["--search", "test"]);
+    assert_eq!(short.status.code(), Some(0));
+    assert_eq!(long.status.code(), Some(0));
+    let short_out = String::from_utf8_lossy(&short.stdout).into_owned();
+    let long_out = String::from_utf8_lossy(&long.stdout).into_owned();
+    assert!(short_out.contains("testpkg"), "got:\n{short_out}");
+    assert_eq!(short_out, long_out, "long alias must match short");
+}

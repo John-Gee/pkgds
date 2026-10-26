@@ -25,7 +25,7 @@ pub enum BtrfsStatus {
 /// empty: objectid 0 is never allocated in a subvolume's fs tree (the first
 /// free objectid is 256), so the kernel answers a single ioctl with zero
 /// items. A whole-subvolume range here would sweep every extent item on every
-/// `--btrfs` run — including the targeted queries whose entire point is to
+/// `--btrfs` run, including the targeted queries whose entire point is to
 /// avoid a sweep.
 fn probe_filter() -> SearchFilter {
     SearchFilter::for_objectid_range(0, BTRFS_EXTENT_DATA_KEY, 0, 0)
@@ -51,7 +51,7 @@ pub fn detect_btrfs(root: &Path) -> BtrfsStatus {
 /// Return the btrfs on-disk size (from file extents) for each package entry.
 ///
 /// This is the physical disk usage of every extent the package's files
-/// reference — compressed or not — i.e. what `compsize` reports as "Disk
+/// reference (compressed or not), i.e. what `compsize` reports as "Disk
 /// Usage".
 ///
 /// Hybrid, because the `BTRFS_IOC_TREE_SEARCH` ioctl is ~1-2 ms per call and

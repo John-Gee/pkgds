@@ -15,14 +15,15 @@ _pkgds() {
 
     local context curcontext="$curcontext" state line
     _arguments "${_arguments_options[@]}" : \
-'-H+[Human-size unit (B, K, Ki, M, Mi, G, Gi, T, Ti, auto, auto-si)]:HUMANSIZE:(B K Ki M Mi G Gi T Ti auto auto-si)' \
+'-H+[Human-size unit (B, K, Ki, M, Mi, G, Gi, T, Ti, auto, auto-si; default\: raw in format mode, auto in table mode)]:HUMANSIZE:(B K Ki M Mi G Gi T Ti auto auto-si)' \
 '-s+[Search packages by regex on name]:SEARCH:_default' \
-'--sort=[Sort by field\: name (ascending), real (alias size)/apparent/files (descending), ratio (ascending)]:SORT:(name real size apparent files ratio)' \
-'-n+[Show only top N packages (0 = unlimited; default 20)]:LIMIT:_default' \
-'--limit=[Show only top N packages (0 = unlimited; default 20)]:LIMIT:_default' \
+'--search=[Search packages by regex on name]:SEARCH:_default' \
+'--sort=[Sort by field\: name (ascending), real (alias size)/apparent/files (descending), ratio (ascending; requires --btrfs)]:SORT:(name real size apparent files ratio)' \
+'-n+[Show only top N packages (0 = unlimited; default 20 in table mode, unlimited in format mode)]:LIMIT:_default' \
+'--limit=[Show only top N packages (0 = unlimited; default 20 in table mode, unlimited in format mode)]:LIMIT:_default' \
 '--root=[Set filesystem root prefix]:ROOT:_files' \
 '--dbpath=[Override pacman local DB path (absolute)]:DBPATH:_files' \
-'-d+[Delimiter between packages in format mode (default\: newline)]:DELIM:_default' \
+'-d+[Delimiter between packages in format mode (default\: newline; used literally, use -d \$'\''\\t'\'' for tab)]:DELIM:_default' \
 '--depth=[Tree depth in levels (implies --tree; default 1)]:DEPTH:_default' \
 '--breadth=[Show at most K children per directory (default 5; requires --tree)]:BREADTH:_default' \
 '--min-percent=[Prune entries below this percentage of their parent (requires --tree; default 0.1)]:MIN_PERCENT:_default' \
@@ -34,7 +35,7 @@ _pkgds() {
 '--total[Show total row at the bottom of table output]' \
 '--files[Show file count column]' \
 '--tree[Show a per-package file/dir tree (default depth 1)]' \
-'--with-deps[Also include the dependencies that removing the target(s) would free]' \
+'--with-deps[Also include the dependencies that removing the target(s) would free (requires package names or \`--search\`)]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 '-V[Print version]' \

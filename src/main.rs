@@ -42,7 +42,13 @@ fn main() {
         eprint_error(err, use_color);
     }
     for target in &report.missing_targets {
-        eprint_error(&format!("no such package: {}", target), use_color);
+        eprint_error(
+            &format!(
+                "no such package: {} (use -s/--search for substring/regex search)",
+                target
+            ),
+            use_color,
+        );
     }
     let unreadable = report.permission_errors + report.read_errors;
     if cfg.verbose {
@@ -57,7 +63,7 @@ fn main() {
         );
     }
 
-    // Render output to stdout. Nothing matched means nothing to print — avoid
+    // Render output to stdout. Nothing matched means nothing to print, so avoid
     // emitting a bare header.
     if !report.packages.is_empty() {
         let result = if let Some(ref fmt) = cfg.format {
@@ -96,7 +102,7 @@ fn main() {
     }
 
     // Exit codes: 1 when nothing matched at all (unknown targets, an empty
-    // search, an empty database); 2 when the result is partial — a file or
+    // search, an empty database); 2 when the result is partial: a file or
     // package could not be read, btrfs data was unavailable, or some requested
     // targets were unknown.
     if report.packages.is_empty() {

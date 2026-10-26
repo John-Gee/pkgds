@@ -376,8 +376,8 @@ fn add_tree_nodes(
     };
 
     // Keep the biggest `breadth` non-pruned children (nodes are sorted by size
-    // descending). Everything else — pruned by --min-percent or capped by
-    // --breadth — is accounted for in one summary row, so a parent's children
+    // descending). Everything else (pruned by --min-percent or capped by
+    // --breadth) is accounted for in one summary row, so a parent's children
     // still add up.
     let mut shown: Vec<&TreeNode> = Vec::new();
     let mut omitted_count = 0usize;

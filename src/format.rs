@@ -1,6 +1,6 @@
 use std::fmt;
 
-/// Format string token — what `%n`, `%m`, etc. expand to.
+/// Format string token: what `%n`, `%m`, etc. expand to.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FormatToken {
     Name,         // %n
@@ -37,7 +37,7 @@ pub enum FormatSegment {
     Token(FormatToken),
 }
 
-/// A parsed format string — a sequence of literal and token segments.
+/// A parsed format string: a sequence of literal and token segments.
 #[derive(Debug, Clone)]
 pub struct FormatString(pub Vec<FormatSegment>);
 

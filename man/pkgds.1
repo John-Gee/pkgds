@@ -4,13 +4,13 @@
 .SH NAME
 pkgds \- Real disk usage per package for Arch Linux
 .SH SYNOPSIS
-\fBpkgds\fR [\fB\-H \fR] [\fB\-s \fR] [\fB\-\-sort\fR] [\fB\-n\fR|\fB\-\-limit\fR] [\fB\-\-btrfs\fR] [\fB\-\-root\fR] [\fB\-\-dbpath\fR] [\fB\-d \fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-\-no\-color\fR] [\fB\-\-apparent\-size\fR] [\fB\-\-total\fR] [\fB\-\-files\fR] [\fB\-\-tree\fR] [\fB\-\-depth\fR] [\fB\-\-breadth\fR] [\fB\-\-min\-percent\fR] [\fB\-\-with\-deps\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] [\fIPOSITIONAL\fR] 
+\fBpkgds\fR [\fB\-H \fR] [\fB\-s\fR|\fB\-\-search\fR] [\fB\-\-sort\fR] [\fB\-n\fR|\fB\-\-limit\fR] [\fB\-\-btrfs\fR] [\fB\-\-root\fR] [\fB\-\-dbpath\fR] [\fB\-d \fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-\-no\-color\fR] [\fB\-\-apparent\-size\fR] [\fB\-\-total\fR] [\fB\-\-files\fR] [\fB\-\-tree\fR] [\fB\-\-depth\fR] [\fB\-\-breadth\fR] [\fB\-\-min\-percent\fR] [\fB\-\-with\-deps\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] [\fIPOSITIONAL\fR] 
 .SH DESCRIPTION
 Real disk usage per package for Arch Linux
 .SH OPTIONS
 .TP
 \fB\-H\fR \fI<HUMANSIZE>\fR
-Human\-size unit (B, K, Ki, M, Mi, G, Gi, T, Ti, auto, auto\-si)
+Human\-size unit (B, K, Ki, M, Mi, G, Gi, T, Ti, auto, auto\-si; default: raw in format mode, auto in table mode)
 .br
 
 .br
@@ -40,11 +40,11 @@ auto
 auto\-si
 .RE
 .TP
-\fB\-s\fR \fI<SEARCH>\fR
+\fB\-s\fR, \fB\-\-search\fR \fI<SEARCH>\fR
 Search packages by regex on name
 .TP
 \fB\-\-sort\fR \fI<SORT>\fR [default: real]
-Sort by field: name (ascending), real (alias size)/apparent/files (descending), ratio (ascending)
+Sort by field: name (ascending), real (alias size)/apparent/files (descending), ratio (ascending; requires \-\-btrfs)
 .br
 
 .br
@@ -65,7 +65,7 @@ ratio
 .RE
 .TP
 \fB\-n\fR, \fB\-\-limit\fR \fI<LIMIT>\fR
-Show only top N packages (0 = unlimited; default 20)
+Show only top N packages (0 = unlimited; default 20 in table mode, unlimited in format mode)
 .TP
 \fB\-\-btrfs\fR
 Enable btrfs on\-disk size tokens (%z, %r)
@@ -77,7 +77,7 @@ Set filesystem root prefix
 Override pacman local DB path (absolute)
 .TP
 \fB\-d\fR \fI<DELIM>\fR
-Delimiter between packages in format mode (default: newline)
+Delimiter between packages in format mode (default: newline; used literally, use \-d $\*(Aq\\t\*(Aq for tab)
 .TP
 \fB\-v\fR, \fB\-\-verbose\fR
 Show warnings for missing files, permission errors
@@ -107,7 +107,7 @@ Show at most K children per directory (default 5; requires \-\-tree)
 Prune entries below this percentage of their parent (requires \-\-tree; default 0.1)
 .TP
 \fB\-\-with\-deps\fR
-Also include the dependencies that removing the target(s) would free
+Also include the dependencies that removing the target(s) would free (requires package names or `\-\-search`)
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)
@@ -119,5 +119,36 @@ Print version
 Format string (printf\-style) or package names
 
 Flags may follow package names (`pkgds bash \-\-btrfs`). A format string that starts with `\-` therefore needs the `\-\-` separator.
+.SH EXTRA
+FORMAT
+  Pass a string containing `%` as the first argument to print one line per
+  package with exactly the fields you ask for. Tokens: %n name, %v version,
+  %m real disk usage, %a apparent size, %f file count, %p metadata size,
+  %z btrfs on\-disk usage (requires \-\-btrfs), %r btrfs ratio, %% literal %.
+  `\\t` and `\\n` inside the format string become tab and newline. `\-d`
+  is used literally between packages; use shell $\*(Aq\\t\*(Aq for a tab there.
+
+MODES
+  Table mode (default) shows the top 20 packages; format mode shows all
+  matches unless \-n is given. \-H defaults to auto in table mode and raw
+  bytes in format mode. The % share column is omitted when only one
+  package matches. A format string takes precedence over \-\-tree. \-\-total
+  and \-\-files describe the table and are ignored in the tree view. With
+  \-\-btrfs the tree is measured in on\-disk bytes, so a package with no
+  on\-disk data is left out and reported on stderr rather than shown.
+
+SELECTION
+  \-\-with\-deps expands the named packages (or the \-s/\-\-search matches) to what
+  removing them would free: the packages themselves plus every dependency
+  that was installed as a dependency and that nothing else needs.
+  \-\-sort ratio requires \-\-btrfs. Flags may follow package names
+  (`pkgds bash \-\-btrfs`); a format string starting with `\-` needs `\-\-` first.
+EXIT CODES
+  0 success. 1 usage error (bad flag combination, missing paths) or nothing
+  matched at all. 2 partial result: some file could not be read, some
+  package was malformed, btrfs data was unavailable, or some requested
+  package names were unknown. A full scan exits 2 whenever any package owns
+  a file this user cannot read, so treat 2 as "numbers are a lower bound",
+  not as failure.
 .SH VERSION
 v0.1.1

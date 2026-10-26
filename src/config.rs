@@ -19,12 +19,13 @@ pub enum SortField {
 /// Accepted `--sort` values, shared by the CLI and its tests.
 const VALID_SORT_VALUES: &[&str] = &["name", "real", "size", "apparent", "files", "ratio"];
 
-/// Raw CLI arguments — built by clap.
+/// Raw CLI arguments built by clap.
 #[derive(clap::Parser, Debug)]
 #[command(
     name = "pkgds",
     version,
-    about = "Real disk usage per package for Arch Linux"
+    about = "Real disk usage per package for Arch Linux",
+    after_long_help = crate::docs::AFTER_LONG_HELP
 )]
 pub struct RawArgs {
     /// Format string (printf-style) or package names
@@ -33,7 +34,7 @@ pub struct RawArgs {
     /// that starts with `-` therefore needs the `--` separator.
     pub positional: Vec<String>,
 
-    /// Human-size unit (B, K, Ki, M, Mi, G, Gi, T, Ti, auto, auto-si)
+    /// Human-size unit (B, K, Ki, M, Mi, G, Gi, T, Ti, auto, auto-si; default: raw in format mode, auto in table mode)
     #[arg(
         short = 'H',
         value_parser = clap::builder::PossibleValuesParser::new([
@@ -43,10 +44,10 @@ pub struct RawArgs {
     pub humansize: Option<String>,
 
     /// Search packages by regex on name
-    #[arg(short = 's')]
+    #[arg(short = 's', long)]
     pub search: Option<String>,
 
-    /// Sort by field: name (ascending), real (alias size)/apparent/files (descending), ratio (ascending)
+    /// Sort by field: name (ascending), real (alias size)/apparent/files (descending), ratio (ascending; requires --btrfs)
     #[arg(
         long,
         default_value = "real",
@@ -54,7 +55,7 @@ pub struct RawArgs {
     )]
     pub sort: String,
 
-    /// Show only top N packages (0 = unlimited; default 20)
+    /// Show only top N packages (0 = unlimited; default 20 in table mode, unlimited in format mode)
     #[arg(short = 'n', long)]
     pub limit: Option<usize>,
 
@@ -70,7 +71,7 @@ pub struct RawArgs {
     #[arg(long)]
     pub dbpath: Option<PathBuf>,
 
-    /// Delimiter between packages in format mode (default: newline)
+    /// Delimiter between packages in format mode (default: newline; used literally, use -d $'\t' for tab)
     #[arg(short = 'd', default_value = "\n", hide_default_value = true)]
     pub delim: String,
 
@@ -110,12 +111,12 @@ pub struct RawArgs {
     #[arg(long)]
     pub min_percent: Option<f64>,
 
-    /// Also include the dependencies that removing the target(s) would free
+    /// Also include the dependencies that removing the target(s) would free (requires package names or `--search`)
     #[arg(long)]
     pub with_deps: bool,
 }
 
-/// Final CLI configuration — built from RawArgs + validation.
+/// Final CLI configuration built from RawArgs + validation.
 pub struct Config {
     pub root: PathBuf,
     pub dbpath: PathBuf,
@@ -633,6 +634,16 @@ mod tests {
         ]);
         let msg = raw.into_config().err().unwrap().to_string();
         assert!(msg.contains("requires package names"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_search_long_alias_matches_short() {
+        let short = config_from(&["-s", "rocm"]).unwrap();
+        let long = config_from(&["--search", "rocm"]).unwrap();
+        assert_eq!(
+            short.search.map(|r| r.as_str().to_string()),
+            long.search.map(|r| r.as_str().to_string())
+        );
     }
 
     #[test]

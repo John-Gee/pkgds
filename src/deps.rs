@@ -38,7 +38,7 @@ fn resolve(
 /// dependency that is not explicitly installed and whose every requirer is also
 /// removed.
 ///
-/// Version constraints are ignored — the system is installed, so pacman has
+/// Version constraints are ignored: the system is installed, so pacman has
 /// already satisfied them. When several packages provide a dependency the
 /// alphabetically-first provider is used, so the result does not depend on
 /// directory order (a deliberate simplification).

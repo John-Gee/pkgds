@@ -1,8 +1,8 @@
-# pkgds — Real Disk Usage per Package for Arch Linux
+# pkgds - Real Disk Usage per Package for Arch Linux
 
 [![AUR](https://img.shields.io/aur/version/pkgds)](https://aur.archlinux.org/packages/pkgds)
 
-`pkgds` reports the **real on-disk size** of each installed Arch Linux package —
+`pkgds` reports the **real on-disk size** of each installed Arch Linux package:
 what is actually allocated, including block rounding, compression, hardlinks and
 post-install changes. `expac -Q '%m'` reports only pacman's *declared* size from
 package metadata, which is often wrong.
@@ -82,25 +82,25 @@ pkgds --with-deps -H auto git
 |------|---------|-------------|
 | `[POSITIONAL]...` | (table mode) | Format string or package names |
 | `-H <unit>` | `raw` (format) / `auto` (table) | Human-size: `B`, `K`/`Ki`, `M`/`Mi`, `G`/`Gi`, `T`/`Ti`, `auto`, `auto-si` |
-| `-s <regex>` | — | Search packages by regex on name |
+| `-s, --search <regex>` | none | Search packages by regex on name |
 | `--sort <field>` | `real` | Sort by: `name` (ascending A-Z), `real` (alias `size`)/`apparent`/`files` (descending), `ratio` (ascending, best compression first; requires `--btrfs`) |
-| `-n, --limit <N>` | 20 | Show only top N packages (0 = unlimited) |
+| `-n, --limit <N>` | 20 (table) / unlimited (format) | Show only top N packages (0 = unlimited) |
 | `--btrfs` | off | Enable btrfs on-disk size tokens (`%z`, `%r`) |
 | `--root <path>` | `/` | Set filesystem root prefix |
-| `--dbpath <path>` | — | Override pacman local DB path (absolute) |
+| `--dbpath <path>` | none | Override pacman local DB path (absolute) |
 | `-d <delim>` | newline | Delimiter between packages in format mode (used literally; `-d $'\t'` for a tab) |
 | `-v, --verbose` | off | Show warnings for missing files, permission errors |
 | `--no-color` | auto | Disable color output (also honors `NO_COLOR`) |
-| `--apparent-size` | — | Show apparent file size instead of disk blocks |
-| `--total` | — | Show a TOTAL row; when `-n` truncates the list, also a SHOWN subtotal |
-| `--files` | — | Show file count column |
-| `--with-deps` | off | Also include the dependencies that removing the target(s) would free |
+| `--apparent-size` | none | Show apparent file size instead of disk blocks |
+| `--total` | none | Show a TOTAL row; when `-n` truncates the list, also a SHOWN subtotal |
+| `--files` | none | Show file count column |
+| `--with-deps` | off | Also include the dependencies that removing the target(s) would free (requires package names or `--search`) |
 | `--tree` | off | Expand each shown package into a file/dir tree (default depth 1) |
 | `--depth <N>` | 1 (with `--tree`) | Tree depth in levels; implies `--tree` |
 | `--breadth <K>` | 5 | Show at most K children per tree directory (0 = no limit; requires `--tree`) |
 | `--min-percent <P>` | 0.1 | Hide tree entries below P% of their parent (requires `--tree`) |
-| `-V, --version` | — | Print version |
-| `-h, --help` | — | Print help |
+| `-V, --version` | none | Print version |
+| `-h, --help` | none | Print help |
 
 `%` is each package's share of the total size of all matching packages; it's
 omitted when only one package matches. Flags may follow package names
@@ -112,7 +112,7 @@ are ignored in the tree view, and a format string takes precedence over
 with no on-disk data is left out and reported on stderr rather than shown in
 a second unit.
 
-`--with-deps` expands the named packages (or the `-s` matches) to what removing
+`--with-deps` expands the named packages (or the `-s`/`--search` matches) to what removing
 them would free: the packages themselves plus every dependency that was
 installed as a dependency and that nothing else needs. Shared dependencies such
 as glibc are therefore not counted, and the TOTAL row is the sum of those
@@ -121,7 +121,7 @@ packages' usage.
 ### Format Tokens
 
 Pass a string containing `%` as the first argument to print one line per package
-with exactly the fields you ask for — useful for scripting and pipes.
+with exactly the fields you ask for: useful for scripting and pipes.
 
 | Token | Field | Source |
 |-------|-------|--------|
@@ -133,7 +133,7 @@ with exactly the fields you ask for — useful for scripting and pipes.
 | `%p` | Metadata size | `desc` file `%SIZE%` |
 | `%z` | btrfs on-disk usage | all file extents via btrfs ioctls, compressed or not (requires `--btrfs` + root; only files on the subvolume `--root` lives in) |
 | `%r` | btrfs ratio | `(%z / %a) * 100`; 100% = uncompressed |
-| `%%` | Literal `%` | — |
+| `%%` | Literal `%` | none |
 
 Sizes come from the manifest rather than a directory walk, so three things
 differ from `du`: symlinks are skipped, a hardlinked inode is counted once
@@ -143,12 +143,7 @@ longer owns are excluded.
 
 ## Exit Codes
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | `pkgds` usage error (bad flag combination, missing paths), or nothing matched at all |
-| 2 | Argument parse error (unknown flag or value), or a partial result: some file could not be read, some package was malformed, btrfs data was unavailable, or some requested package names were unknown |
-
-A full scan exits 2 whenever any package owns a file this user cannot read —
-mode-600 files owned by root are enough — so treat 2 as "numbers are a lower
-bound", not as failure.
+0 success. 1 usage error or nothing matched. 2 partial result (some file could
+not be read, btrfs data was unavailable, or some names were unknown); treat 2
+as "numbers are a lower bound", not as failure. See `pkgds --help` and
+`pkgds(1)` for the full list.
